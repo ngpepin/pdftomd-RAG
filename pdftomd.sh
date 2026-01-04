@@ -57,7 +57,7 @@ CONVERT_BASE64=false # Set to true to convert image links in the markdown files 
 FORCE_CPU=false
 USE_OCR=false
 OCR_SCRIPT="/home/npepin/Projects/OCR_PDF/ocr-pdf.sh"
-OCR_OPTIONS="-aq" # Options to pass to the OCR script - autorotate and quiet
+OCR_OPTIONS="-aq" # Options to pass to the OCR script 
 # DO NOT MODIFY BELOW THIS LINE
 # ----------------------------------------------
 
@@ -87,7 +87,6 @@ while [[ $# -gt 0 ]]; do
         ;;
     -v | --verbose)
         VERBOSE=true
-		OCR_OPTIONS="-a" # turn off quiet for OCR when verbose is enabled
         shift
         ;;
     -o | --ocr)
@@ -203,9 +202,9 @@ if [ "$USE_OCR" = true ]; then
     source_base_no_ext="${source_base%.*}"
     ocr_output_pdf="$start_directory/${source_base_no_ext}_OCR.pdf"
     if [ "$VERBOSE" = true ]; then
-        (cd "$start_directory" && "$OCR_SCRIPT" $OCR_OPTIONS "$source_pdf")
+        (cd "$start_directory" && eval "$OCR_SCRIPT $OCR_OPTIONS $source_pdf")
     else
-        (cd "$start_directory" && "$OCR_SCRIPT" "$source_pdf" >/dev/null 2>&1)
+        (cd "$start_directory" && eval "$OCR_SCRIPT $OCR_OPTIONS $source_pdf" >/dev/null 2>&1)
     fi
     if [ ! -f "$ocr_output_pdf" ]; then
         echo "Error: OCR output not found: $ocr_output_pdf" >&2
