@@ -87,6 +87,7 @@ while [[ $# -gt 0 ]]; do
         ;;
     -v | --verbose)
         VERBOSE=true
+		OCR_OPTIONS="-a" # turn off quiet for OCR when verbose is enabled
         shift
         ;;
     -o | --ocr)
