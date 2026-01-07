@@ -87,7 +87,7 @@ These steps keep the local `pdftomd.sh` customizations intact while pulling upst
 
 # Appendix: About Marker
 
-see https://github.com/datalab-to/marker for up-to-date writeup on Marker.  The following backgrounder may be out of date.
+see https://github.com/datalab-to/marker for up-to-date writeup on Marker.  The following brief backgrounder may be out of date.
 
 Marker converts documents to markdown, JSON, and HTML quickly and accurately.
 
@@ -101,8 +101,6 @@ Marker converts documents to markdown, JSON, and HTML quickly and accurately.
 
 ## Performance
 
-<img src="data/images/overall.png" width="800px"/>
-
 Marker benchmarks favorably compared to cloud services like Llamaparse and Mathpix, as well as other open source tools.
 
 The above results are running single PDF pages serially.  Marker is significantly faster when running in batch mode, with a projected throughput of 122 pages/second on an H100 (.18 seconds per page across 22 processes).
@@ -115,7 +113,4 @@ For the highest accuracy, pass the `--use_llm` flag to use an LLM alongside mark
 
 Here is a table benchmark comparing marker, gemini flash alone, and marker with use_llm:
 
-<img src="data/images/table.png" width="400px"/>
-
 As you can see, the use_llm mode offers higher accuracy than marker or gemini alone.
-
