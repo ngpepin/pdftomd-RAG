@@ -30,7 +30,7 @@ This produces `file.md` in the current directory. If you are not embedding image
 - `-w, --workers N`: Number of worker processes for marker (default is 1).
 - `-h, --help`: Show usage.
 
-## Output behavior
+## Output behaviour
 
 - Output is moved to the directory where the script is run.
 - When `-o/--ocr` is used, the OCR pass writes `<filename>_OCR.pdf` in the current directory and the final markdown is named `<filename>_OCR.md`.
