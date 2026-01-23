@@ -9,9 +9,10 @@
 - Optionally embeds images as Base64 (no external asset folders needed).
 - Optional text-only output that strips image links from the final markdown.
 - Optional OCR pass via bundled `ocr-pdf/ocr-pdf.sh` before conversion.
-- Optional LLM helper via Marker `--use_llm`.
+- Optional LLM helper via a built-in Marker `--use_llm`.
 - Automatically uses GPU when available and installs CUDA-enabled torch when needed.
 - Cleans up intermediate files and attempts to stop spawned processes on exit.
+- Optional supplemental LLM post-processing step with --clean.
 
 ## Using `pdftomd.sh` in a RAG pipeline
 
@@ -92,7 +93,7 @@ Common flags:
 
 ## OCR note
 
-Marker already performs OCR on images during conversion, so `-o/--ocr` is optional. The bundled `ocr-pdf/ocr-pdf.sh` is a separate pre-processing pipeline that uses OCRmyPDF + Tesseract (optionally via the EasyOCR plugin for GPU) and adds steps like blank-page detection/removal, deskewing, autorotation, and size optimization before Marker runs. Use it if you want to experiment with alternate OCR engines/languages or extra pre-processing on scanned PDFs.
+Marker already performs OCR on images during conversion, so `-o/--ocr` is optional. The bundled `ocr-pdf/ocr-pdf.sh` is a separate pre-processing pipeline that uses OCRmyPDF + Tesseract (optionally via the EasyOCR plugin for GPU) and adds steps like blank-page detection/removal, deskewing, autorotation, and size optimization before Marker runs. Use it if you want to experiment with alternate OCR engines/languages or extra pre-processing on scanned PDFs.  In general, Marker's built-in OCR does a better job, however. 
 
 When `-o/--ocr` is enabled, the wrapper passes `--disable_ocr` to Marker so it does not override the pre-processed OCR layer. When `-o/--ocr` is not used, the wrapper forces Marker OCR and strips existing OCR text layers to prefer Marker’s own OCR.
 

@@ -474,7 +474,7 @@ cleanup_temp() {
 }
 
 trap 'on_error $LINENO' ERR
-trap cleanup_temp INT TERM EXIT
+trap cleanup_temp INT TERM HUP QUIT EXIT
 
 # Run a command quietly unless verbose is enabled.
 run_quiet() {
