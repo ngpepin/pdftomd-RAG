@@ -30,6 +30,7 @@ set -eE -o pipefail
 #  -l, --llm         Enable Marker LLM helper (--use_llm)
 #  -c, --cpu         Force CPU processing (ignore GPU even if present)
 #  -r, --recurse     Recursively process PDFs when a directory is provided
+#  --clean           Post-process markdown with the configured LLM to improve OCR/readability
 #  -w, --workers N   Number of worker processes for marker
 #  -h, --help        Show this help message
 #
@@ -61,6 +62,7 @@ CONVERT_BASE64=false # Set to true to convert image links in the markdown files 
 STRIP_IMAGE_LINKS=false # Set to true to remove image links from the final markdown
 FORCE_CPU=false
 RECURSE_DIR=false
+CLEAN_MARKDOWN=false
 USE_OCR=false
 OCR_SCRIPT="$SCRIPT_DIR/ocr-pdf/ocr-pdf.sh"
 OCR_OPTIONS="-aq" # Options to pass to the OCR script
@@ -94,6 +96,7 @@ Options:
   -l, --llm         Enable Marker LLM helper (--use_llm)
   -c, --cpu         Force CPU processing (ignore GPU even if present)
   -r, --recurse     Recursively process PDFs when a directory is provided
+  --clean           Post-process markdown with the configured LLM to improve OCR/readability
   -w, --workers N   Number of worker processes for marker
   -h, --help        Show this help message
 
@@ -131,6 +134,10 @@ while [[ $# -gt 0 ]]; do
 		;;
 	-r | --recurse)
 		RECURSE_DIR=true
+		shift
+		;;
+	--clean)
+		CLEAN_MARKDOWN=true
 		shift
 		;;
 	-w | --workers)
@@ -336,6 +343,9 @@ build_cli_options() {
 	fi
 	if [ "$RECURSE_DIR" = true ]; then
 		opts+=("-r")
+	fi
+	if [ "$CLEAN_MARKDOWN" = true ]; then
+		opts+=("--clean")
 	fi
 	if [ -n "${MARKER_WORKERS:-}" ]; then
 		opts+=("-w" "$MARKER_WORKERS")
@@ -730,6 +740,209 @@ with open(path, "w", encoding="utf-8") as handle:
 PY
 
 	log "Stripped image links from markdown: $input_file"
+}
+
+# Clean markdown with an OpenAI-compatible LLM, adding footnotes with original text.
+clean_markdown_with_llm() {
+	local input_file="$1"
+
+	if [[ ! -f "$input_file" ]]; then
+		echo "Error: Input file '$input_file' not found."
+		return 1
+	fi
+
+	if [ -z "${OPENAI_BASE_URL:-}" ] || [ -z "${OPENAI_MODEL:-}" ] || [ -z "${OPENAI_API_KEY:-}" ] || [ "$OPENAI_API_KEY" = "..." ]; then
+		echo "Error: --clean requires OPENAI_BASE_URL, OPENAI_MODEL, and OPENAI_API_KEY to be set in pdftomd.conf." >&2
+		return 1
+	fi
+
+	if ! [[ "${MAX_TOKENS:-30000}" =~ ^[0-9]+$ ]]; then
+		echo "Error: MAX_TOKENS must be a positive integer (set in pdftomd.conf)." >&2
+		return 1
+	fi
+
+	python3 - "$input_file" <<'PY'
+import json
+import os
+import re
+import sys
+import urllib.request
+import urllib.error
+from typing import List
+
+path = sys.argv[1]
+base_url = os.environ.get("OPENAI_BASE_URL", "").strip()
+model = os.environ.get("OPENAI_MODEL", "").strip()
+api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+max_tokens = int(os.environ.get("MAX_TOKENS", "30000"))
+
+if not base_url or not model or not api_key:
+    raise SystemExit("Missing OPENAI_BASE_URL/OPENAI_MODEL/OPENAI_API_KEY.")
+
+base_url = base_url.rstrip("/")
+if base_url.endswith("/v1"):
+    endpoint = f"{base_url}/chat/completions"
+else:
+    endpoint = f"{base_url}/v1/chat/completions"
+
+with open(path, "r", encoding="utf-8", errors="ignore") as handle:
+    content = handle.read()
+
+def estimate_tokens(text: str) -> int:
+    return max(1, int(len(text) / 4))
+
+def split_chunks(text: str, budget_tokens: int) -> List[str]:
+    paras = text.split("\n\n")
+    chunks = []
+    current = []
+    current_tokens = 0
+    max_chars = budget_tokens * 4
+    for para in paras:
+        p_tokens = estimate_tokens(para)
+        if p_tokens > budget_tokens:
+            # Split oversized paragraph by chars.
+            if current:
+                chunks.append("\n\n".join(current))
+                current = []
+                current_tokens = 0
+            for i in range(0, len(para), max_chars):
+                chunks.append(para[i : i + max_chars])
+            continue
+        if current and current_tokens + p_tokens > budget_tokens:
+            chunks.append("\n\n".join(current))
+            current = [para]
+            current_tokens = p_tokens
+        else:
+            current.append(para)
+            current_tokens += p_tokens
+    if current:
+        chunks.append("\n\n".join(current))
+    return chunks
+
+# Reserve space for prompt and output.
+chunk_budget = max(1000, int(max_tokens * 0.45))
+response_budget = max(1000, int(max_tokens * 0.45))
+
+total_tokens = estimate_tokens(content)
+if total_tokens <= max_tokens:
+    chunks = [content]
+else:
+    chunks = split_chunks(content, chunk_budget)
+
+system_prompt = (
+    "You are a meticulous editor. Improve readability and correct likely OCR errors "
+    "without inventing new content. Preserve markdown structure (headings, lists, code, "
+    "tables, links). When you replace or remove text, insert a placeholder like [[FN1]] "
+    "at the correction point and record the original text in notes."
+)
+
+def build_user_prompt(text: str, index: int, total: int) -> str:
+    return (
+        f"Chunk {index}/{total}. Edit the markdown below.\\n\\n"
+        "Rules:\\n"
+        "- Preserve meaning; fix OCR errors and improve readability.\\n"
+        "- Keep markdown structure.\\n"
+        "- For each correction/removal, insert a placeholder [[FNn]] where the change occurs.\\n"
+        "- Return ONLY JSON with keys: text, notes.\\n"
+        "- notes is a list of objects: {\"id\": n, \"original\": \"...\", \"reason\": \"corrected\"|\"removed\"}.\\n"
+        "- Use ids starting at 1 and increment for each note in this chunk.\\n\\n"
+        "Markdown:\\n"
+        + text
+    )
+
+def parse_json(content_text: str):
+    try:
+        return json.loads(content_text)
+    except json.JSONDecodeError:
+        start = content_text.find("{")
+        end = content_text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            return json.loads(content_text[start : end + 1])
+        raise
+
+def call_llm(text: str, index: int, total: int) -> dict:
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": build_user_prompt(text, index, total)},
+        ],
+        "temperature": 0.2,
+        "max_tokens": response_budget,
+    }
+    data = json.dumps(payload).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if api_key and api_key != "...":
+        headers["Authorization"] = f"Bearer {api_key}"
+    req = urllib.request.Request(endpoint, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=600) as resp:
+            body = resp.read().decode("utf-8")
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"LLM request failed ({e.code}): {body}") from e
+    except Exception as e:
+        raise RuntimeError(f"LLM request failed: {e}") from e
+
+    response = json.loads(body)
+    if "error" in response:
+        raise RuntimeError(f"LLM error: {response['error']}")
+    content_text = response["choices"][0]["message"]["content"]
+    return parse_json(content_text)
+
+global_notes = []
+global_id = 0
+cleaned_chunks = []
+
+for idx, chunk in enumerate(chunks, start=1):
+    result = call_llm(chunk, idx, len(chunks))
+    text_out = result.get("text", "")
+    notes = result.get("notes", [])
+
+    placeholders = re.findall(r"\\[\\[FN(\\d+)\\]\\]", text_out)
+    if len(placeholders) != len(notes):
+        # Best-effort: align by order.
+        placeholders = re.findall(r"\\[\\[FN(\\d*)\\]\\]", text_out)
+
+    for note in notes:
+        global_id += 1
+        note_id = note.get("id")
+        placeholder = f"[[FN{note_id}]]"
+        if placeholder in text_out:
+            text_out = text_out.replace(placeholder, f"[^{global_id}]", 1)
+        else:
+            # Fallback: replace the first available placeholder.
+            text_out = re.sub(r"\\[\\[FN\\d*\\]\\]", f"[^{global_id}]", text_out, count=1)
+        original = " ".join(str(note.get("original", "")).split())
+        reason = note.get("reason", "corrected")
+        if reason == "removed":
+            label = "Removed OCR garble"
+        else:
+            label = "Original text"
+        global_notes.append((global_id, f"{label}: {original}"))
+
+    cleaned_chunks.append(text_out)
+
+cleaned = "\n\n".join(cleaned_chunks).rstrip()
+
+notes_section = ["", "---", "", "# OCR Corrections Notes", ""]
+if global_notes:
+    for note_id, note_text in global_notes:
+        notes_section.append(f"[^{note_id}]: {note_text}")
+else:
+    notes_section.append("No corrections were logged.")
+
+cleaned = cleaned + "\n" + "\n".join(notes_section) + "\n"
+
+backup = path + ".bak"
+with open(backup, "w", encoding="utf-8") as handle:
+    handle.write(content)
+with open(path, "w", encoding="utf-8") as handle:
+    handle.write(cleaned)
+
+print(f"Cleaned markdown written to: {path}")
+print(f"Backup of original markdown saved to: {backup}")
+PY
 }
 
 # Function to generate a unique filename by appending a counter if the file already exists
@@ -1202,6 +1415,10 @@ fi
 
 if [ "$STRIP_IMAGE_LINKS" = true ]; then
 	strip_image_links_from_md "$md_target"
+fi
+
+if [ "$CLEAN_MARKDOWN" = true ]; then
+	clean_markdown_with_llm "$md_target"
 fi
 
 if [ "${#chunk_archives[@]}" -gt 0 ]; then

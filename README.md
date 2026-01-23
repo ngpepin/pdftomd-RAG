@@ -64,6 +64,7 @@ This produces `file.md` in the current directory. If you are not embedding image
 - `-c, --cpu`: Force CPU processing (ignore GPU even if present).
 - `-w, --workers N`: Number of worker processes for marker (default is 1).
 - `-h, --help`: Show usage.
+- `--clean`: Post-process the final markdown with the configured LLM to improve readability and fix OCR errors. Creates a `.bak` of the original markdown and appends footnotes with original text.
 
 ## Output behaviour
 
@@ -86,6 +87,8 @@ OCR_OPTIONS=(-a -q)
 Common flags:
 - `-a`: autorotate pages
 - `-q`: quiet output
+
+`MAX_TOKENS` controls the chunking size for `--clean`. Set it to the approximate context window of your LLM.
 
 ## OCR note
 

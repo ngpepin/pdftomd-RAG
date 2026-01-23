@@ -10,3 +10,6 @@ OPENAI_BASE_URL="https://api.openai.com/v1"
 # Options passed to ocr-pdf/ocr-pdf.sh (array form for clarity).
 # Example: OCR_OPTIONS=(-a -q)
 OCR_OPTIONS=(-a -q)
+
+# Approximate model context limit used to decide chunk sizes for --clean.
+MAX_TOKENS=30000
