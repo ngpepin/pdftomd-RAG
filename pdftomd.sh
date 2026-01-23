@@ -1278,7 +1278,11 @@ log "Merging markdown files into one"
 start_name="${output_md_files##*/}"
 start_name="${start_name%.*}"
 
-mapfile -t file_array_md < <(ls "$directory" | grep "^$start_name" | grep "$extmd$" | sort -t'-' -k2,2n)
+mapfile -t file_array_md < <(ls "$directory/${start_name}-"*.md 2>/dev/null | sort -t'-' -k2,2n)
+if [ "${#file_array_md[@]}" -eq 0 ]; then
+	echo "Error: No chunk markdown files found for prefix ${start_name}-" >&2
+	exit 1
+fi
 
 # Display the list of chunked MD files
 if [ "$DEBUG" = true ]; then
@@ -1308,7 +1312,11 @@ for i in "${!file_array_md[@]}"; do
 	if [ $CONVERT_BASE64 = true ]; then
 		mv -f "$file_path" "$temp_dir"
 		archive_file="${file_path%.*}.tar.xz"
-		mv -f "$archive_file" "$temp_dir"
+		if [ -f "$archive_file" ]; then
+			mv -f "$archive_file" "$temp_dir"
+		else
+			log "Missing chunk archive for $(basename "$file_path"); skipping."
+		fi
 	else
 		rm -f "$file_path"
 	fi
