@@ -48,7 +48,7 @@ This produces `file.md` in the current directory. If you are not embedding image
 - `-t, --text`: Remove image links from the final markdown (ignores `--embed`).
 - `-v, --verbose`: Show verbose output.
 - `-o, --ocr`: Run OCR via bundled `ocr-pdf/ocr-pdf.sh` before conversion (produces `<filename>_OCR.md`).
-- `-l, --llm`: Enable Marker LLM helper (`--use_llm`). Configure credentials per Marker (e.g., `GOOGLE_API_KEY`) and optionally set `LLM_SERVICE` in `pdftomd.conf`. For OpenAI-compatible endpoints set `LLM_SERVICE=marker.services.openai.OpenAIService` and supply `OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_BASE_URL`.
+- `-l, --llm`: Enable Marker LLM helper (`--use_llm`). Copy `pdftomd.conf.pub` to `pdftomd.conf` and configure credentials (e.g., `GOOGLE_API_KEY`), then optionally set `LLM_SERVICE`. For OpenAI-compatible endpoints set `LLM_SERVICE=marker.services.openai.OpenAIService` and supply `OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_BASE_URL`.
 - `-c, --cpu`: Force CPU processing (ignore GPU even if present).
 - `-w, --workers N`: Number of worker processes for marker (default is 1).
 - `-h, --help`: Show usage.
@@ -60,6 +60,10 @@ This produces `file.md` in the current directory. If you are not embedding image
 - When images are not embedded, the script creates an archive (`*_bundle.tar.xz`) with attachment directories and prints a reminder to extract it.
 - When `-t/--text` is used, image links are removed from the final markdown and no attachment bundle is created.
 - At the end, the script prints total conversion time (HH:MM:SS) and time per page (seconds, 2 decimals).
+
+## Configuration
+
+Copy `pdftomd.conf.pub` to `pdftomd.conf`, edit the values for your environment, and keep `pdftomd.conf` out of version control.
 
 ## OCR note
 

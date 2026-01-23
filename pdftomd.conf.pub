@@ -1,0 +1,8 @@
+#!/bin/bash
+
+# Copy this file to pdftomd.conf and fill in your credentials.
+# The script only loads pdftomd.conf (without .pub).
+
+OPENAI_API_KEY="..."
+OPENAI_MODEL="gpt-4.1"
+OPENAI_BASE_URL="https://api.openai.com/v1"
