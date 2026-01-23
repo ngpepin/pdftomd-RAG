@@ -1278,7 +1278,13 @@ log "Merging markdown files into one"
 start_name="${output_md_files##*/}"
 start_name="${start_name%.*}"
 
-mapfile -t file_array_md < <(ls "$directory/${start_name}-"*.md 2>/dev/null | sort -t'-' -k2,2n)
+shopt -s nullglob
+mapfile -t file_array_md < <(
+	for f in "$directory/${start_name}-"*.md; do
+		basename "$f"
+	done | sort -t'-' -k2,2n
+)
+shopt -u nullglob
 if [ "${#file_array_md[@]}" -eq 0 ]; then
 	echo "Error: No chunk markdown files found for prefix ${start_name}-" >&2
 	exit 1
