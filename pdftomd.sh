@@ -715,28 +715,8 @@ import re
 import sys
 
 path = sys.argv[1]
-print("Starting LLM cleanup...")
 with open(path, "r", encoding="utf-8", errors="ignore") as handle:
     content = handle.read()
-original_content = content
-
-data_uri_map = {}
-
-def replace_data_uris(text: str) -> str:
-    pattern = re.compile(r"data:image/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+")
-    def repl(match):
-        token = f"__DATA_IMAGE_TOKEN_{len(data_uri_map) + 1}__"
-        data_uri_map[token] = match.group(0)
-        return token
-    return pattern.sub(repl, text)
-
-def restore_data_uris(text: str) -> str:
-    for token, uri in data_uri_map.items():
-        text = text.replace(token, uri)
-    return text
-
-content = replace_data_uris(content)
-print(f"Stripped {len(data_uri_map)} embedded image(s) before LLM cleanup.")
 
 # Remove HTML image tags.
 content = re.sub(r"<img\b[^>]*>", "", content, flags=re.IGNORECASE)
@@ -802,7 +782,7 @@ clean_markdown_with_llm() {
 		return 1
 	fi
 
-	OPENAI_BASE_URL="$OPENAI_BASE_URL" OPENAI_MODEL="$OPENAI_MODEL" OPENAI_API_KEY="$OPENAI_API_KEY" MAX_TOKENS="${MAX_TOKENS:-30000}" \
+	OPENAI_BASE_URL="$OPENAI_BASE_URL" OPENAI_MODEL="$OPENAI_MODEL" OPENAI_API_KEY="$OPENAI_API_KEY" MAX_TOKENS="${MAX_TOKENS:-30000}" VERBOSE="$VERBOSE" \
 		python3 - "$input_file" <<'PY'
 import json
 import os
@@ -813,6 +793,10 @@ import urllib.error
 from typing import List
 
 path = sys.argv[1]
+verbose = os.environ.get("VERBOSE", "false").lower() == "true"
+def vprint(*args, **kwargs):
+    if verbose:
+        print(*args, **kwargs)
 base_url = os.environ.get("OPENAI_BASE_URL", "").strip()
 model = os.environ.get("OPENAI_MODEL", "").strip()
 api_key = os.environ.get("OPENAI_API_KEY", "").strip()
@@ -827,8 +811,29 @@ if base_url.endswith("/v1"):
 else:
     endpoint = f"{base_url}/v1/chat/completions"
 
+vprint("Starting LLM cleanup...")
 with open(path, "r", encoding="utf-8", errors="ignore") as handle:
     content = handle.read()
+original_content = content
+
+data_uri_map = {}
+
+def replace_data_uris(text: str) -> str:
+    pattern = re.compile(r"data:image/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+")
+    def repl(match):
+        token = f"__DATA_IMAGE_TOKEN_{len(data_uri_map) + 1}__"
+        data_uri_map[token] = match.group(0)
+        return token
+    return pattern.sub(repl, text)
+
+def restore_data_uris(text: str) -> str:
+    for token, uri in data_uri_map.items():
+        text = text.replace(token, uri)
+    return text
+
+content = replace_data_uris(content)
+vprint(f"Stripped {len(data_uri_map)} embedded image(s) before LLM cleanup.")
+vprint(f"Chars (original/stripped): {len(original_content)}/{len(content)}")
 
 def estimate_tokens(text: str) -> int:
     return max(1, int(len(text) / 4))
@@ -866,11 +871,12 @@ chunk_budget = max(1000, int(max_tokens * 0.45))
 response_budget = max(1000, int(max_tokens * 0.45))
 
 total_tokens = estimate_tokens(content)
-print(f"Estimated tokens: {total_tokens} (max {max_tokens}).")
+vprint(f"Estimated tokens: {total_tokens} (max {max_tokens}).")
 if total_tokens <= max_tokens:
     chunks = [content]
 else:
     chunks = split_chunks(content, chunk_budget)
+vprint(f"Chunk count: {len(chunks)} (budget {chunk_budget} tokens, response {response_budget}).")
 
 system_prompt = (
     "You are a meticulous editor. Improve readability and correct likely OCR errors "
@@ -925,7 +931,7 @@ def parse_json(content_text: str):
         raise
 
 def call_llm(text: str, index: int, total: int) -> dict:
-    print(f"Sending chunk {index}/{total} to LLM...")
+    vprint(f"Sending chunk {index}/{total} to LLM...")
     payload = {
         "model": model,
         "messages": [
@@ -957,7 +963,7 @@ def call_llm(text: str, index: int, total: int) -> dict:
     content_text = response["choices"][0]["message"]["content"]
     try:
         result = parse_json(content_text)
-        print(f"Received chunk {index}/{total} response.")
+        vprint(f"Received chunk {index}/{total} response.")
         return result
     except Exception:
         # One retry with a stricter prompt.
@@ -980,7 +986,7 @@ def call_llm(text: str, index: int, total: int) -> dict:
         content_text = response["choices"][0]["message"]["content"]
         try:
             result = parse_json(content_text)
-            print(f"Received chunk {index}/{total} response (retry).")
+            vprint(f"Received chunk {index}/{total} response (retry).")
             return result
         except Exception:
             # Last-resort fallback: treat the response as cleaned text with no notes.
@@ -992,7 +998,7 @@ def call_llm(text: str, index: int, total: int) -> dict:
                 if fallback_text.endswith("```"):
                     fallback_text = fallback_text[:-3]
                 fallback_text = fallback_text.strip()
-            print(f"Received chunk {index}/{total} response (fallback text).")
+            vprint(f"Received chunk {index}/{total} response (fallback text).")
             return {"text": fallback_text, "notes": []}
 
 global_notes = []
@@ -1046,7 +1052,7 @@ else:
 
 cleaned = cleaned + "\n" + "\n".join(notes_section) + "\n"
 cleaned = restore_data_uris(cleaned)
-print("Restored embedded images after LLM cleanup.")
+vprint("Restored embedded images after LLM cleanup.")
 
 backup = path + ".bak"
 with open(backup, "w", encoding="utf-8") as handle:
@@ -1056,7 +1062,7 @@ with open(path, "w", encoding="utf-8") as handle:
 
 print(f"Cleaned markdown written to: {path}")
 print(f"Backup of original markdown saved to: {backup}")
-print("LLM cleanup complete.")
+vprint("LLM cleanup complete.")
 PY
 }
 
