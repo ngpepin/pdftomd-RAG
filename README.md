@@ -12,7 +12,9 @@
 - Optional LLM helper via a built-in Marker `--use_llm`.
 - Automatically uses GPU when available and installs CUDA-enabled torch when needed.
 - Cleans up intermediate files and attempts to stop spawned processes on exit.
-- Optional supplemental LLM post-processing step with --clean.
+- Optional supplemental LLM post-processing step with `--clean`.
+
+The overall result can be a much cleaner more streamlined end product more suited to RAG pipeline ingestion.
 
 ## Using `pdftomd.sh` in a RAG pipeline
 
@@ -65,7 +67,8 @@ This produces `file.md` in the current directory. If you are not embedding image
 - `-c, --cpu`: Force CPU processing (ignore GPU even if present).
 - `-w, --workers N`: Number of worker processes for marker (default is 1).
 - `-h, --help`: Show usage.
-- `--clean`: Post-process the final markdown with the configured LLM to improve readability and fix OCR errors. Creates a `.bak` of the original markdown and appends footnotes with original text. This is a wrapper-level cleanup pass and can be used together with `-l`.
+- `--clean`: Post-process the final markdown with the configured LLM to improve readability and fix OCR errors. Creates a `.bak` of the original markdown and appends footnotes with original text. This is a wrapper-level cleanup pass and can be used together with `-l`. Note that it can result in much longer conversion times.
+- `--preclean-copy`: Save a copy of the merged markdown (before `--clean`) as `<name>_preclean.md`.
 
 ## Output behaviour
 

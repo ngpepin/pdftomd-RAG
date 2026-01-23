@@ -31,6 +31,7 @@ set -eE -o pipefail
 #  -c, --cpu         Force CPU processing (ignore GPU even if present)
 #  -r, --recurse     Recursively process PDFs when a directory is provided
 #  --clean           Post-process markdown with the configured LLM to improve OCR/readability
+#  --preclean-copy   Save a pre-clean copy of the merged markdown before LLM cleanup
 #  -w, --workers N   Number of worker processes for marker
 #  -h, --help        Show this help message
 #
@@ -63,6 +64,7 @@ STRIP_IMAGE_LINKS=false # Set to true to remove image links from the final markd
 FORCE_CPU=false
 RECURSE_DIR=false
 CLEAN_MARKDOWN=false
+PRECLEAN_COPY=false
 USE_OCR=false
 OCR_SCRIPT="$SCRIPT_DIR/ocr-pdf/ocr-pdf.sh"
 OCR_OPTIONS="-aq" # Options to pass to the OCR script
@@ -97,6 +99,7 @@ Options:
   -c, --cpu         Force CPU processing (ignore GPU even if present)
   -r, --recurse     Recursively process PDFs when a directory is provided
   --clean           Post-process markdown with the configured LLM to improve OCR/readability
+  --preclean-copy   Save a pre-clean copy of the merged markdown before LLM cleanup
   -w, --workers N   Number of worker processes for marker
   -h, --help        Show this help message
 
@@ -138,6 +141,10 @@ while [[ $# -gt 0 ]]; do
 		;;
 	--clean)
 		CLEAN_MARKDOWN=true
+		shift
+		;;
+	--preclean-copy)
+		PRECLEAN_COPY=true
 		shift
 		;;
 	-w | --workers)
@@ -346,6 +353,9 @@ build_cli_options() {
 	fi
 	if [ "$CLEAN_MARKDOWN" = true ]; then
 		opts+=("--clean")
+	fi
+	if [ "$PRECLEAN_COPY" = true ]; then
+		opts+=("--preclean-copy")
 	fi
 	if [ -n "${MARKER_WORKERS:-}" ]; then
 		opts+=("-w" "$MARKER_WORKERS")
@@ -1534,6 +1544,12 @@ fi
 
 if [ "$STRIP_IMAGE_LINKS" = true ]; then
 	strip_image_links_from_md "$md_target"
+fi
+
+if [ "$PRECLEAN_COPY" = true ]; then
+	preclean_target="${md_target%.md}_preclean.md"
+	cp -f "$md_target" "$preclean_target"
+	echo "Saved pre-clean copy: $(basename "$preclean_target")"
 fi
 
 if [ "$CLEAN_MARKDOWN" = true ]; then
