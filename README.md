@@ -98,7 +98,7 @@ When `-o/--ocr` is enabled, the wrapper passes `--disable_ocr` to Marker so it d
 
 ## LLM note
 
-`-l/--llm` tells Marker to use its LLM helper during conversion. `--clean` is a separate, wrapper-driven post-processing step that is more aggressive about fixing OCR errors and adds footnotes for traceability. You can use both together: `-l` improves Marker’s extraction fidelity, while `--clean` refines the final markdown afterward.
+`-l/--llm` tells Marker to use its LLM helper during conversion. `--clean` is a separate, wrapper-driven post-processing step that is more aggressive about fixing OCR errors and adds footnotes for traceability; it’s also a clear example of how this wrapper adds value beyond vanilla Marker. You can use both together: `-l` improves Marker’s extraction fidelity, while `--clean` refines the final markdown afterward.
 
 ## Requirements
 

@@ -705,6 +705,7 @@ import re
 import sys
 
 path = sys.argv[1]
+print("Starting LLM cleanup...")
 with open(path, "r", encoding="utf-8", errors="ignore") as handle:
     content = handle.read()
 original_content = content
@@ -725,6 +726,7 @@ def restore_data_uris(text: str) -> str:
     return text
 
 content = replace_data_uris(content)
+print(f"Stripped {len(data_uri_map)} embedded image(s) before LLM cleanup.")
 
 # Remove HTML image tags.
 content = re.sub(r"<img\b[^>]*>", "", content, flags=re.IGNORECASE)
@@ -854,6 +856,7 @@ chunk_budget = max(1000, int(max_tokens * 0.45))
 response_budget = max(1000, int(max_tokens * 0.45))
 
 total_tokens = estimate_tokens(content)
+print(f"Estimated tokens: {total_tokens} (max {max_tokens}).")
 if total_tokens <= max_tokens:
     chunks = [content]
 else:
@@ -912,6 +915,7 @@ def parse_json(content_text: str):
         raise
 
 def call_llm(text: str, index: int, total: int) -> dict:
+    print(f"Sending chunk {index}/{total} to LLM...")
     payload = {
         "model": model,
         "messages": [
@@ -942,7 +946,9 @@ def call_llm(text: str, index: int, total: int) -> dict:
         raise RuntimeError(f"LLM error: {response['error']}")
     content_text = response["choices"][0]["message"]["content"]
     try:
-        return parse_json(content_text)
+        result = parse_json(content_text)
+        print(f"Received chunk {index}/{total} response.")
+        return result
     except Exception:
         # One retry with a stricter prompt.
         strict_payload = {
@@ -963,7 +969,9 @@ def call_llm(text: str, index: int, total: int) -> dict:
         response = json.loads(body)
         content_text = response["choices"][0]["message"]["content"]
         try:
-            return parse_json(content_text)
+            result = parse_json(content_text)
+            print(f"Received chunk {index}/{total} response (retry).")
+            return result
         except Exception:
             # Last-resort fallback: treat the response as cleaned text with no notes.
             fallback_text = content_text.strip()
@@ -974,6 +982,7 @@ def call_llm(text: str, index: int, total: int) -> dict:
                 if fallback_text.endswith("```"):
                     fallback_text = fallback_text[:-3]
                 fallback_text = fallback_text.strip()
+            print(f"Received chunk {index}/{total} response (fallback text).")
             return {"text": fallback_text, "notes": []}
 
 global_notes = []
@@ -1027,6 +1036,7 @@ else:
 
 cleaned = cleaned + "\n" + "\n".join(notes_section) + "\n"
 cleaned = restore_data_uris(cleaned)
+print("Restored embedded images after LLM cleanup.")
 
 backup = path + ".bak"
 with open(backup, "w", encoding="utf-8") as handle:
@@ -1036,6 +1046,7 @@ with open(path, "w", encoding="utf-8") as handle:
 
 print(f"Cleaned markdown written to: {path}")
 print(f"Backup of original markdown saved to: {backup}")
+print("LLM cleanup complete.")
 PY
 }
 
