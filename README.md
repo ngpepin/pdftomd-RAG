@@ -40,6 +40,18 @@ Benefits over calling Marker directly:
 ./pdftomd.sh /path/to/file.pdf
 ```
 
+You can also pass a directory to process all PDFs inside it sequentially:
+
+```shell
+./pdftomd.sh /path/to/folder
+```
+
+Add `-r/--recurse` to include PDFs in subdirectories:
+
+```shell
+./pdftomd.sh -r /path/to/folder
+```
+
 This produces `file.md` in the current directory. If you are not embedding images, it also produces a `file_bundle.tar.xz` archive with attachments.
 
 ## Options

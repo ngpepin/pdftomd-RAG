@@ -20,7 +20,7 @@ set -eE -o pipefail
 #
 # Usage:
 #
-#  pdftomd.sh [options] <pdf_file>
+#  pdftomd.sh [options] <pdf_file|directory>
 #
 # Options:
 #  -e, --embed       Embed images as Base64 in the output markdown
@@ -29,6 +29,7 @@ set -eE -o pipefail
 #  -o, --ocr         Run OCR via bundled ocr-pdf/ocr-pdf.sh before conversion
 #  -l, --llm         Enable Marker LLM helper (--use_llm)
 #  -c, --cpu         Force CPU processing (ignore GPU even if present)
+#  -r, --recurse     Recursively process PDFs when a directory is provided
 #  -w, --workers N   Number of worker processes for marker
 #  -h, --help        Show this help message
 #
@@ -59,6 +60,7 @@ MARKER_WORKERS=1     # Worker processes for marker CLI
 CONVERT_BASE64=false # Set to true to convert image links in the markdown files to Base64-encoded images
 STRIP_IMAGE_LINKS=false # Set to true to remove image links from the final markdown
 FORCE_CPU=false
+RECURSE_DIR=false
 USE_OCR=false
 OCR_SCRIPT="$SCRIPT_DIR/ocr-pdf/ocr-pdf.sh"
 OCR_OPTIONS="-aq" # Options to pass to the OCR script
@@ -81,7 +83,7 @@ fi
 # Print CLI usage and options.
 print_usage() {
 	cat <<EOF
-Usage: pdftomd.sh [options] <pdf_file>
+Usage: pdftomd.sh [options] <pdf_file|directory>
 
 Options:
   -e, --embed       Embed images as Base64 in the output markdown
@@ -91,6 +93,7 @@ Options:
                     (Note that Marker will perform OCR on images if needed)
   -l, --llm         Enable Marker LLM helper (--use_llm)
   -c, --cpu         Force CPU processing (ignore GPU even if present)
+  -r, --recurse     Recursively process PDFs when a directory is provided
   -w, --workers N   Number of worker processes for marker
   -h, --help        Show this help message
 
@@ -126,6 +129,10 @@ while [[ $# -gt 0 ]]; do
 		FORCE_CPU=true
 		shift
 		;;
+	-r | --recurse)
+		RECURSE_DIR=true
+		shift
+		;;
 	-w | --workers)
 		if [ -z "${2:-}" ] || [[ "$2" == -* ]]; then
 			echo "Error: --workers requires a numeric value."
@@ -157,6 +164,9 @@ while [[ $# -gt 0 ]]; do
 				;;
 			c)
 				FORCE_CPU=true
+				;;
+			r)
+				RECURSE_DIR=true
 				;;
 			w)
 				echo "Error: -w requires a numeric value (use -w 2)."
@@ -212,6 +222,15 @@ fi
 
 start_directory=$(pwd)
 source_pdf=$(realpath "$source_pdf")
+
+if [ -d "$source_pdf" ]; then
+	if [ "$RECURSE_DIR" = false ]; then
+		log "Directory detected; processing PDFs in '$source_pdf' (non-recursive)."
+	else
+		log "Directory detected; processing PDFs in '$source_pdf' recursively."
+	fi
+	process_directory "$source_pdf"
+fi
 
 if [ ! -f "$source_pdf" ]; then
 	echo "Error: PDF file not found: $source_pdf"
@@ -292,6 +311,66 @@ log() {
 	if [ "$VERBOSE" = true ]; then
 		echo "$@"
 	fi
+}
+
+# Build CLI args for re-invoking this script on multiple PDFs.
+build_cli_options() {
+	local opts=()
+	if [ "$CONVERT_BASE64" = true ]; then
+		opts+=("-e")
+	fi
+	if [ "$STRIP_IMAGE_LINKS" = true ]; then
+		opts+=("-t")
+	fi
+	if [ "$VERBOSE" = true ]; then
+		opts+=("-v")
+	fi
+	if [ "$USE_OCR" = true ]; then
+		opts+=("-o")
+	fi
+	if [ "$USE_LLM" = true ]; then
+		opts+=("-l")
+	fi
+	if [ "$FORCE_CPU" = true ]; then
+		opts+=("-c")
+	fi
+	if [ "$RECURSE_DIR" = true ]; then
+		opts+=("-r")
+	fi
+	if [ -n "${MARKER_WORKERS:-}" ]; then
+		opts+=("-w" "$MARKER_WORKERS")
+	fi
+	printf '%s\n' "${opts[@]}"
+}
+
+process_directory() {
+	local dir="$1"
+	local pdfs=()
+	shopt -s nullglob
+	if [ "$RECURSE_DIR" = true ]; then
+		mapfile -t pdfs < <(find "$dir" -type f \( -iname "*.pdf" \) | sort)
+	else
+		pdfs=("$dir"/*.pdf "$dir"/*.PDF)
+	fi
+	shopt -u nullglob
+	if [ "${#pdfs[@]}" -eq 0 ]; then
+		echo "Error: No PDF files found in directory: $dir" >&2
+		exit 1
+	fi
+	mapfile -t dir_opts < <(build_cli_options)
+	local failures=0
+	for pdf in "${pdfs[@]}"; do
+		echo "Processing PDF in directory: $(basename "$pdf")"
+		if ! "$SCRIPT_DIR/pdftomd.sh" "${dir_opts[@]}" "$pdf"; then
+			failures=$((failures + 1))
+			echo "Warning: Failed processing $pdf" >&2
+		fi
+	done
+	if [ "$failures" -gt 0 ]; then
+		echo "Error: $failures PDF(s) failed during directory processing." >&2
+		exit 1
+	fi
+	exit 0
 }
 
 if [ "$STRIP_IMAGE_LINKS" = true ]; then
