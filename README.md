@@ -67,7 +67,7 @@ This produces `file.md` in the current directory. If you are not embedding image
 - `-c, --cpu`: Force CPU processing (ignore GPU even if present).
 - `-w, --workers N`: Number of worker processes for marker (default is 1).
 - `-h, --help`: Show usage.
-- `--clean`: Post-process the final markdown with the configured LLM to improve readability and fix OCR errors. Creates a `.bak` of the original markdown and appends footnotes with original text. This is a wrapper-level cleanup pass and can be used together with `-l`. Note that it can result in much longer conversion times.
+- `--clean`: Post-process the final markdown with the configured LLM to improve readability and fix OCR errors. Creates a `.bak` of the original markdown and appends footnotes with original text. This is a wrapper-level cleanup pass and can be used together with `-l`. Note that it can result in longer conversion times.
 - `--preclean-copy`: Save a copy of the merged markdown (before `--clean`) as `<name>_preclean.md`.
 
 ## Output behaviour
