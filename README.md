@@ -65,9 +65,21 @@ This produces `file.md` in the current directory. If you are not embedding image
 
 Copy `pdftomd.conf.pub` to `pdftomd.conf`, edit the values for your environment, and keep `pdftomd.conf` out of version control.
 
+`OCR_OPTIONS` can be set as a Bash array for clarity, for example:
+
+```bash
+OCR_OPTIONS=(-a -q)
+```
+
+Common flags:
+- `-a`: autorotate pages
+- `-q`: quiet output
+
 ## OCR note
 
 Marker already performs OCR on images during conversion, so `-o/--ocr` is optional. The bundled `ocr-pdf/ocr-pdf.sh` is a separate pre-processing pipeline that uses OCRmyPDF + Tesseract (optionally via the EasyOCR plugin for GPU) and adds steps like blank-page detection/removal, deskewing, autorotation, and size optimization before Marker runs. Use it if you want to experiment with alternate OCR engines/languages or extra pre-processing on scanned PDFs.
+
+When `-o/--ocr` is enabled, the wrapper passes `--disable_ocr` to Marker so it does not override the pre-processed OCR layer. When `-o/--ocr` is not used, the wrapper forces Marker OCR and strips existing OCR text layers to prefer Marker’s own OCR.
 
 ## Requirements
 

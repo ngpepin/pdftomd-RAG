@@ -236,10 +236,19 @@ if [ "$USE_OCR" = true ]; then
 	source_base="$(basename "$source_pdf")"
 	source_base_no_ext="${source_base%.*}"
 	ocr_output_pdf="$start_directory/${source_base_no_ext}_OCR.pdf"
+	# Build OCR command safely to preserve paths with spaces.
+	ocr_cmd=("$OCR_SCRIPT")
+	if declare -p OCR_OPTIONS >/dev/null 2>&1 && declare -p OCR_OPTIONS | grep -q 'declare -a'; then
+		ocr_cmd+=("${OCR_OPTIONS[@]}")
+	elif [ -n "${OCR_OPTIONS:-}" ]; then
+		read -r -a ocr_opts_array <<<"$OCR_OPTIONS"
+		ocr_cmd+=("${ocr_opts_array[@]}")
+	fi
+	ocr_cmd+=("$source_pdf")
 	if [ "$VERBOSE" = true ]; then
-		(cd "$start_directory" && eval "$OCR_SCRIPT $OCR_OPTIONS $source_pdf")
+		(cd "$start_directory" && "${ocr_cmd[@]}")
 	else
-		(cd "$start_directory" && eval "$OCR_SCRIPT $OCR_OPTIONS $source_pdf" >/dev/null 2>&1)
+		(cd "$start_directory" && "${ocr_cmd[@]}" >/dev/null 2>&1)
 	fi
 	if [ ! -f "$ocr_output_pdf" ]; then
 		echo "Error: OCR output not found: $ocr_output_pdf" >&2
@@ -272,6 +281,7 @@ chunk_dir=""
 temp_merge_dir=""
 marker_pid=""
 marker_log=""
+marker_config_json=""
 
 #
 # FUNCTIONS
@@ -368,6 +378,9 @@ cleanup_temp() {
 	fi
 	if [ -n "$marker_log" ] && [ -f "$marker_log" ]; then
 		rm -f "$marker_log"
+	fi
+	if [ -n "$marker_config_json" ] && [ -f "$marker_config_json" ]; then
+		rm -f "$marker_config_json"
 	fi
 }
 
@@ -766,6 +779,15 @@ if [ "$SKIP_TO_ASSEMBLY" = false ]; then
 			marker_extra_args+=(--openai_base_url "$OPENAI_BASE_URL")
 		fi
 	fi
+	if [ "$USE_OCR" = true ]; then
+		marker_extra_args+=(--disable_ocr)
+	else
+		marker_config_json="$(mktemp)"
+		cat >"$marker_config_json" <<'JSON'
+{"force_ocr": true, "strip_existing_ocr": true}
+JSON
+		marker_extra_args+=(--config_json "$marker_config_json")
+	fi
 	cmd="marker '$chunk_dir' --output_dir '$MARKER_RESULTS' --workers $MARKER_WORKERS"
 	if [ "$USE_LLM" = true ]; then
 		cmd="$cmd --use_llm"
@@ -783,6 +805,11 @@ if [ "$SKIP_TO_ASSEMBLY" = false ]; then
 		if [ -n "$OPENAI_BASE_URL" ] && [ "$OPENAI_BASE_URL" != "..." ]; then
 			cmd="$cmd --openai_base_url '$OPENAI_BASE_URL'"
 		fi
+	fi
+	if [ "$USE_OCR" = true ]; then
+		cmd="$cmd --disable_ocr"
+	elif [ -n "$marker_config_json" ]; then
+		cmd="$cmd --config_json '$marker_config_json'"
 	fi
 	marker_log="$(mktemp)"
 	if [ "$SHOW_MARKER_OUTPUT" = true ]; then
