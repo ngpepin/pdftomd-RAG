@@ -60,11 +60,11 @@ This produces `file.md` in the current directory. If you are not embedding image
 - `-t, --text`: Remove image links from the final markdown (ignores `--embed`).
 - `-v, --verbose`: Show verbose output.
 - `-o, --ocr`: Run OCR via bundled `ocr-pdf/ocr-pdf.sh` before conversion (produces `<filename>_OCR.md`).
-- `-l, --llm`: Enable Marker LLM helper (`--use_llm`). Copy `pdftomd.conf.pub` to `pdftomd.conf` and configure credentials (e.g., `GOOGLE_API_KEY`), then optionally set `LLM_SERVICE`. For OpenAI-compatible endpoints set `LLM_SERVICE=marker.services.openai.OpenAIService` and supply `OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_BASE_URL`.
+- `-l, --llm`: Enable Marker LLM helper (`--use_llm`) during conversion. Copy `pdftomd.conf.pub` to `pdftomd.conf` and configure credentials (e.g., `GOOGLE_API_KEY`), then optionally set `LLM_SERVICE`. For OpenAI-compatible endpoints set `LLM_SERVICE=marker.services.openai.OpenAIService` and supply `OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_BASE_URL`.
 - `-c, --cpu`: Force CPU processing (ignore GPU even if present).
 - `-w, --workers N`: Number of worker processes for marker (default is 1).
 - `-h, --help`: Show usage.
-- `--clean`: Post-process the final markdown with the configured LLM to improve readability and fix OCR errors. Creates a `.bak` of the original markdown and appends footnotes with original text.
+- `--clean`: Post-process the final markdown with the configured LLM to improve readability and fix OCR errors. Creates a `.bak` of the original markdown and appends footnotes with original text. This is a wrapper-level cleanup pass and can be used together with `-l`.
 
 ## Output behaviour
 
@@ -95,6 +95,10 @@ Common flags:
 Marker already performs OCR on images during conversion, so `-o/--ocr` is optional. The bundled `ocr-pdf/ocr-pdf.sh` is a separate pre-processing pipeline that uses OCRmyPDF + Tesseract (optionally via the EasyOCR plugin for GPU) and adds steps like blank-page detection/removal, deskewing, autorotation, and size optimization before Marker runs. Use it if you want to experiment with alternate OCR engines/languages or extra pre-processing on scanned PDFs.
 
 When `-o/--ocr` is enabled, the wrapper passes `--disable_ocr` to Marker so it does not override the pre-processed OCR layer. When `-o/--ocr` is not used, the wrapper forces Marker OCR and strips existing OCR text layers to prefer Marker’s own OCR.
+
+## LLM note
+
+`-l/--llm` tells Marker to use its LLM helper during conversion. `--clean` is a separate, wrapper-driven post-processing step that is more aggressive about fixing OCR errors and adds footnotes for traceability. You can use both together: `-l` improves Marker’s extraction fidelity, while `--clean` refines the final markdown afterward.
 
 ## Requirements
 
