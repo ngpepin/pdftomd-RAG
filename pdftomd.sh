@@ -15,7 +15,7 @@ set -eE -o pipefail
 #
 # - Splits the input PDF into 100-page chunks, runs Marker once on the chunk folder,
 #   and merges the resulting markdown into a single output file.
-# - Supports optional OCR pre-pass via ocr-pdf.sh and optional LLM helper mode via Marker.
+# - Supports optional OCR pre-pass via the bundled ocr-pdf/ocr-pdf.sh and optional LLM helper mode via Marker.
 # - Moves the final markdown to the directory where the script was invoked.
 #
 # Usage:
@@ -24,8 +24,9 @@ set -eE -o pipefail
 #
 # Options:
 #  -e, --embed       Embed images as Base64 in the output markdown
+#  -t, --text        Remove image links from the final markdown (ignores --embed)
 #  -v, --verbose     Show verbose output
-#  -o, --ocr         Run OCR via ocr-pdf.sh before conversion
+#  -o, --ocr         Run OCR via bundled ocr-pdf/ocr-pdf.sh before conversion
 #  -l, --llm         Enable Marker LLM helper (--use_llm)
 #  -c, --cpu         Force CPU processing (ignore GPU even if present)
 #  -w, --workers N   Number of worker processes for marker
@@ -37,7 +38,7 @@ set -eE -o pipefail
 #
 # Dependencies:
 #
-#  qpdf, pxz, marker (Python installation), ocr-pdf.sh (OCR_PDF repo for -o/--ocr)
+#  qpdf, pxz, marker (Python installation), bundled ocr-pdf/ocr-pdf.sh (for -o/--ocr)
 #
 # Notes:
 #  - Default is GPU if available (auto-installs CUDA-enabled torch when needed).
@@ -45,6 +46,7 @@ set -eE -o pipefail
 #####
 
 # Set the following variables to control the behavior of the script
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VERBOSE=false
 DEBUG=false
 SHOW_MARKER_OUTPUT=false                                        # Set to true to see the output of the marker command
@@ -55,15 +57,16 @@ MARKER_RESULTS="$MARKER_DIRECTORY/$MARKER_VENV/lib/python3.10/" # Directory wher
 MARKER_RESULTS+="site-packages/conversion_results"
 MARKER_WORKERS=1     # Worker processes for marker CLI
 CONVERT_BASE64=false # Set to true to convert image links in the markdown files to Base64-encoded images
+STRIP_IMAGE_LINKS=false # Set to true to remove image links from the final markdown
 FORCE_CPU=false
 USE_OCR=false
-OCR_SCRIPT="/home/npepin/Projects/OCR_PDF/ocr-pdf.sh"
+OCR_SCRIPT="$SCRIPT_DIR/ocr-pdf/ocr-pdf.sh"
 OCR_OPTIONS="-aq" # Options to pass to the OCR script
 USE_LLM=false
 LLM_SERVICE=""
 
 # source the configuration file if it exists
-CONFIG_FILE="$(dirname "$0")/pdftomd.conf"
+CONFIG_FILE="$SCRIPT_DIR/pdftomd.conf"
 if [ -f "$CONFIG_FILE" ]; then
 	# shellcheck source=/dev/null
 	source "$CONFIG_FILE"
@@ -82,8 +85,9 @@ Usage: pdftomd.sh [options] <pdf_file>
 
 Options:
   -e, --embed       Embed images as Base64 in the output markdown
+  -t, --text        Remove image links from the final markdown (ignores --embed)
   -v, --verbose     Show verbose output
-  -o, --ocr         Run OCR via an external EasyOCR script before conversion
+  -o, --ocr         Run OCR via bundled ocr-pdf/ocr-pdf.sh before conversion
                     (Note that Marker will perform OCR on images if needed)
   -l, --llm         Enable Marker LLM helper (--use_llm)
   -c, --cpu         Force CPU processing (ignore GPU even if present)
@@ -100,6 +104,10 @@ while [[ $# -gt 0 ]]; do
 	case "$1" in
 	-e | --embed)
 		CONVERT_BASE64=true
+		shift
+		;;
+	-t | --text)
+		STRIP_IMAGE_LINKS=true
 		shift
 		;;
 	-v | --verbose)
@@ -134,6 +142,9 @@ while [[ $# -gt 0 ]]; do
 			case "$flag_char" in
 			e)
 				CONVERT_BASE64=true
+				;;
+			t)
+				STRIP_IMAGE_LINKS=true
 				;;
 			v)
 				VERBOSE=true
@@ -273,6 +284,13 @@ log() {
 	fi
 }
 
+if [ "$STRIP_IMAGE_LINKS" = true ]; then
+	if [ "$CONVERT_BASE64" = true ]; then
+		log "Text-only mode enabled; ignoring --embed."
+	fi
+	CONVERT_BASE64=false
+fi
+
 # Format seconds as HH:MM:SS.
 format_duration() {
 	local total_seconds="$1"
@@ -280,6 +298,35 @@ format_duration() {
 	local minutes=$(((total_seconds % 3600) / 60))
 	local seconds=$((total_seconds % 60))
 	printf "%02d:%02d:%02d" "$hours" "$minutes" "$seconds"
+}
+
+# Check marker logs for GPU VRAM exhaustion or other conversion failures.
+marker_log_has_oom() {
+	local log_file="$1"
+	grep -Eqi "OutOfMemoryError|CUDA out of memory|CUDA error: out of memory|torch\\.cuda\\.OutOfMemoryError|CUBLAS_STATUS_ALLOC_FAILED|CUDNN_STATUS_ALLOC_FAILED|CUDNN_STATUS_NOT_SUPPORTED" "$log_file"
+}
+
+marker_log_has_failure() {
+	local log_file="$1"
+	grep -Eq "Error converting|Traceback|OutOfMemoryError|CUDA out of memory|CUDA error: out of memory|CUBLAS_STATUS_ALLOC_FAILED|CUDNN_STATUS_ALLOC_FAILED|CUDNN_STATUS_NOT_SUPPORTED" "$log_file"
+}
+
+report_marker_failure() {
+	local log_file="$1"
+	local exit_code="${2:-1}"
+	local header="Error: marker failed"
+	if [ -n "$exit_code" ] && [ "$exit_code" -ne 0 ]; then
+		header="$header (exit code $exit_code)."
+	else
+		header="$header."
+	fi
+	echo "$header" >&2
+	if [ -n "$log_file" ] && [ -f "$log_file" ] && marker_log_has_oom "$log_file"; then
+		echo "Detected GPU VRAM exhaustion in Marker output." >&2
+		echo "Tip: Try -c (CPU), reduce workers with -w 1, or re-run with -v for details." >&2
+	else
+		echo "Marker reported conversion failures. Re-run with -v for details." >&2
+	fi
 }
 
 # Trap handler for unexpected errors.
@@ -542,6 +589,57 @@ EOF
 	log "Base64-encoded Markdown file created: $output_file"
 }
 
+# Remove image links and image reference definitions from a Markdown file.
+strip_image_links_from_md() {
+	local input_file="$1"
+
+	if [[ ! -f "$input_file" ]]; then
+		echo "Error: Input file '$input_file' not found."
+		return 1
+	fi
+
+	python3 - "$input_file" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8", errors="ignore") as handle:
+    content = handle.read()
+
+# Remove HTML image tags.
+content = re.sub(r"<img\\b[^>]*>", "", content, flags=re.IGNORECASE)
+
+# Replace inline markdown images with their alt text.
+def repl_inline(match):
+    alt = (match.group(1) or "").strip()
+    return alt
+
+content = re.sub(r"!\\[([^\\]]*)\\]\\(([^)]+)\\)", repl_inline, content)
+
+# Replace reference-style markdown images with their alt text.
+content = re.sub(r"!\\[([^\\]]*)\\]\\[([^\\]]*)\\]", repl_inline, content)
+
+# Drop reference definitions that point to common image formats or data URIs.
+def is_image_ref(url):
+    url = url.lower()
+    if url.startswith("data:image/"):
+        return True
+    return re.search(r"\\.(png|jpg|jpeg|gif|svg|webp|bmp|tiff)(\\?|#|$)", url) is not None
+
+lines = []
+for line in content.splitlines():
+    match = re.match(r"^\\s*\\[([^\\]]+)\\]:\\s*(\\S+)", line)
+    if match and is_image_ref(match.group(2)):
+        continue
+    lines.append(line)
+
+with open(path, "w", encoding="utf-8") as handle:
+    handle.write("\\n".join(lines))
+PY
+
+	log "Stripped image links from markdown: $input_file"
+}
+
 # Function to generate a unique filename by appending a counter if the file already exists
 # Create a unique filename by appending (n) when needed.
 get_unique_filename() {
@@ -711,12 +809,12 @@ if [ "$SKIP_TO_ASSEMBLY" = false ]; then
 	fi
 	marker_pid=""
 	if [ "$marker_status" -ne 0 ]; then
-		echo "Error: marker failed with exit code $marker_status." >&2
+		report_marker_failure "$marker_log" "$marker_status"
 		exit "$marker_status"
 	fi
 	# Convert failures can be logged even if marker exits 0; detect and fail fast.
-	if grep -Eq "Error converting|Traceback|OutOfMemoryError|CUDA out of memory" "$marker_log"; then
-		echo "Error: marker reported conversion failures. Re-run with -v for details." >&2
+	if marker_log_has_failure "$marker_log"; then
+		report_marker_failure "$marker_log" 1
 		exit 1
 	fi
 
@@ -906,7 +1004,7 @@ cd "$directory" || exit
 
 bundle_archive=""
 bundle_archive_created=false
-if [ "$CONVERT_BASE64" = false ]; then
+if [ "$CONVERT_BASE64" = false ] && [ "$STRIP_IMAGE_LINKS" = false ]; then
 	# Collect attachment directories referenced in the consolidated markdown file.
 	if [ -f "$consolidated_md_file" ]; then
 		mapfile -t attachment_refs < <(grep -o 'attachments_[^)/]*' "$consolidated_md_file" | sort -u)
@@ -974,7 +1072,16 @@ else
 fi
 
 if [ "${#attachments_dirs[@]}" -gt 0 ]; then
-	if [ "$bundle_archive_created" = true ]; then
+	if [ "$STRIP_IMAGE_LINKS" = true ]; then
+		for dir in "${attachments_dirs[@]}"; do
+			if [ -d "$directory/$dir" ]; then
+				rm -rf "$directory/$dir"
+			fi
+			if [ "$directory" != "$start_directory" ] && [ -d "$start_directory/$dir" ]; then
+				rm -rf "$start_directory/$dir"
+			fi
+		done
+	elif [ "$bundle_archive_created" = true ]; then
 		for dir in "${attachments_dirs[@]}"; do
 			rm -rf "$directory/$dir"
 		done
@@ -985,6 +1092,10 @@ if [ "${#attachments_dirs[@]}" -gt 0 ]; then
 			fi
 		done
 	fi
+fi
+
+if [ "$STRIP_IMAGE_LINKS" = true ]; then
+	strip_image_links_from_md "$md_target"
 fi
 
 if [ "${#chunk_archives[@]}" -gt 0 ]; then

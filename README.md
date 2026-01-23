@@ -7,7 +7,8 @@
 - Splits large PDFs into chunks and runs Marker once on the chunk folder (avoids repeated model loads).
 - Consolidates all chunk markdown into a single `.md` file.
 - Optionally embeds images as Base64 (no external asset folders needed).
-- Optional OCR pass via `ocr-pdf.sh` before conversion.
+- Optional text-only output that strips image links from the final markdown.
+- Optional OCR pass via bundled `ocr-pdf/ocr-pdf.sh` before conversion.
 - Optional LLM helper via Marker `--use_llm`.
 - Automatically uses GPU when available and installs CUDA-enabled torch when needed.
 - Cleans up intermediate files and attempts to stop spawned processes on exit.
@@ -44,8 +45,9 @@ This produces `file.md` in the current directory. If you are not embedding image
 ## Options
 
 - `-e, --embed`: Embed images as Base64 in the output markdown.
+- `-t, --text`: Remove image links from the final markdown (ignores `--embed`).
 - `-v, --verbose`: Show verbose output.
-- `-o, --ocr`: Run OCR via `ocr-pdf.sh` before conversion (produces `<filename>_OCR.md`).
+- `-o, --ocr`: Run OCR via bundled `ocr-pdf/ocr-pdf.sh` before conversion (produces `<filename>_OCR.md`).
 - `-l, --llm`: Enable Marker LLM helper (`--use_llm`). Configure credentials per Marker (e.g., `GOOGLE_API_KEY`) and optionally set `LLM_SERVICE` in `pdftomd.conf`. For OpenAI-compatible endpoints set `LLM_SERVICE=marker.services.openai.OpenAIService` and supply `OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_BASE_URL`.
 - `-c, --cpu`: Force CPU processing (ignore GPU even if present).
 - `-w, --workers N`: Number of worker processes for marker (default is 1).
@@ -56,13 +58,18 @@ This produces `file.md` in the current directory. If you are not embedding image
 - Output is moved to the directory where the script is run.
 - When `-o/--ocr` is used, the OCR pass writes `<filename>_OCR.pdf` in the current directory and the final markdown is named `<filename>_OCR.md`.
 - When images are not embedded, the script creates an archive (`*_bundle.tar.xz`) with attachment directories and prints a reminder to extract it.
+- When `-t/--text` is used, image links are removed from the final markdown and no attachment bundle is created.
 - At the end, the script prints total conversion time (HH:MM:SS) and time per page (seconds, 2 decimals).
+
+## OCR note
+
+Marker already performs OCR on images during conversion, so `-o/--ocr` is optional. The bundled `ocr-pdf/ocr-pdf.sh` is a separate pre-processing pipeline that uses OCRmyPDF + Tesseract (optionally via the EasyOCR plugin for GPU) and adds steps like blank-page detection/removal, deskewing, autorotation, and size optimization before Marker runs. Use it if you want to experiment with alternate OCR engines/languages or extra pre-processing on scanned PDFs.
 
 ## Requirements
 
 - `qpdf` and `pxz`
 - Marker installed in the configured `MARKER_DIRECTORY` with an active venv
-- `ocr-pdf.sh` from the `OCR_PDF` repository (required for `-o/--ocr`)
+- Bundled `ocr-pdf/ocr-pdf.sh` (required for `-o/--ocr`)
 - NVIDIA driver installed if you want GPU (torch will be auto-installed in the venv)
 
 ## Updating Marker without breaking `pdftomd.sh`
