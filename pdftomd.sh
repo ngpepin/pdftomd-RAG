@@ -751,8 +751,19 @@ clean_markdown_with_llm() {
 		return 1
 	fi
 
-	if [ -z "${OPENAI_BASE_URL:-}" ] || [ -z "${OPENAI_MODEL:-}" ] || [ -z "${OPENAI_API_KEY:-}" ] || [ "$OPENAI_API_KEY" = "..." ]; then
-		echo "Error: --clean requires OPENAI_BASE_URL, OPENAI_MODEL, and OPENAI_API_KEY to be set in pdftomd.conf." >&2
+	missing_vars=()
+	if [ -z "${OPENAI_BASE_URL:-}" ]; then
+		missing_vars+=("OPENAI_BASE_URL")
+	fi
+	if [ -z "${OPENAI_MODEL:-}" ]; then
+		missing_vars+=("OPENAI_MODEL")
+	fi
+	if [ -z "${OPENAI_API_KEY:-}" ] || [ "$OPENAI_API_KEY" = "..." ]; then
+		missing_vars+=("OPENAI_API_KEY")
+	fi
+	if [ "${#missing_vars[@]}" -gt 0 ]; then
+		echo "Error: --clean requires OpenAI-compatible settings in pdftomd.conf." >&2
+		echo "Missing: ${missing_vars[*]}" >&2
 		return 1
 	fi
 
@@ -761,7 +772,8 @@ clean_markdown_with_llm() {
 		return 1
 	fi
 
-	python3 - "$input_file" <<'PY'
+	OPENAI_BASE_URL="$OPENAI_BASE_URL" OPENAI_MODEL="$OPENAI_MODEL" OPENAI_API_KEY="$OPENAI_API_KEY" MAX_TOKENS="${MAX_TOKENS:-30000}" \
+		python3 - "$input_file" <<'PY'
 import json
 import os
 import re
