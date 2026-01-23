@@ -942,7 +942,19 @@ def call_llm(text: str, index: int, total: int) -> dict:
             body = resp.read().decode("utf-8")
         response = json.loads(body)
         content_text = response["choices"][0]["message"]["content"]
-        return parse_json(content_text)
+        try:
+            return parse_json(content_text)
+        except Exception:
+            # Last-resort fallback: treat the response as cleaned text with no notes.
+            fallback_text = content_text.strip()
+            if fallback_text.startswith("```"):
+                fence_end = fallback_text.find("\n")
+                if fence_end != -1:
+                    fallback_text = fallback_text[fence_end + 1 :]
+                if fallback_text.endswith("```"):
+                    fallback_text = fallback_text[:-3]
+                fallback_text = fallback_text.strip()
+            return {"text": fallback_text, "notes": []}
 
 global_notes = []
 global_id = 0
