@@ -863,13 +863,32 @@ def build_user_prompt(text: str, index: int, total: int) -> str:
     )
 
 def parse_json(content_text: str):
+    text = content_text.strip()
+    # Strip markdown fences if present.
+    if text.startswith("```"):
+        fence_end = text.find("\n")
+        if fence_end != -1:
+            text = text[fence_end + 1 :]
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
     try:
-        return json.loads(content_text)
+        return json.loads(text)
     except json.JSONDecodeError:
-        start = content_text.find("{")
-        end = content_text.rfind("}")
+        # Try to decode the first JSON object found.
+        decoder = json.JSONDecoder()
+        for i, ch in enumerate(text):
+            if ch == "{":
+                try:
+                    obj, _ = decoder.raw_decode(text[i:])
+                    return obj
+                except json.JSONDecodeError:
+                    continue
+        # Last resort: attempt from first to last brace.
+        start = text.find("{")
+        end = text.rfind("}")
         if start != -1 and end != -1 and end > start:
-            return json.loads(content_text[start : end + 1])
+            return json.loads(text[start : end + 1])
         raise
 
 def call_llm(text: str, index: int, total: int) -> dict:
@@ -882,6 +901,8 @@ def call_llm(text: str, index: int, total: int) -> dict:
         "temperature": 0.2,
         "max_tokens": response_budget,
     }
+    # Ask for JSON object output if the backend supports it.
+    payload["response_format"] = {"type": "json_object"}
     data = json.dumps(payload).encode("utf-8")
     headers = {"Content-Type": "application/json"}
     if api_key and api_key != "...":
@@ -900,7 +921,28 @@ def call_llm(text: str, index: int, total: int) -> dict:
     if "error" in response:
         raise RuntimeError(f"LLM error: {response['error']}")
     content_text = response["choices"][0]["message"]["content"]
-    return parse_json(content_text)
+    try:
+        return parse_json(content_text)
+    except Exception:
+        # One retry with a stricter prompt.
+        strict_payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": build_user_prompt(text, index, total)},
+                {"role": "user", "content": "Return ONLY valid JSON. No markdown, no extra text."},
+            ],
+            "temperature": 0.0,
+            "max_tokens": response_budget,
+            "response_format": {"type": "json_object"},
+        }
+        data = json.dumps(strict_payload).encode("utf-8")
+        req = urllib.request.Request(endpoint, data=data, headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=600) as resp:
+            body = resp.read().decode("utf-8")
+        response = json.loads(body)
+        content_text = response["choices"][0]["message"]["content"]
+        return parse_json(content_text)
 
 global_notes = []
 global_id = 0
