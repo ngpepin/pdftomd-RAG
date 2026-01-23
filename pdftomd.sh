@@ -707,6 +707,24 @@ import sys
 path = sys.argv[1]
 with open(path, "r", encoding="utf-8", errors="ignore") as handle:
     content = handle.read()
+original_content = content
+
+data_uri_map = {}
+
+def replace_data_uris(text: str) -> str:
+    pattern = re.compile(r"data:image/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+")
+    def repl(match):
+        token = f"__DATA_IMAGE_TOKEN_{len(data_uri_map) + 1}__"
+        data_uri_map[token] = match.group(0)
+        return token
+    return pattern.sub(repl, text)
+
+def restore_data_uris(text: str) -> str:
+    for token, uri in data_uri_map.items():
+        text = text.replace(token, uri)
+    return text
+
+content = replace_data_uris(content)
 
 # Remove HTML image tags.
 content = re.sub(r"<img\b[^>]*>", "", content, flags=re.IGNORECASE)
@@ -845,7 +863,8 @@ system_prompt = (
     "You are a meticulous editor. Improve readability and correct likely OCR errors "
     "without inventing new content. Preserve markdown structure (headings, lists, code, "
     "tables, links). When you replace or remove text, insert a placeholder like [[FN1]] "
-    "at the correction point and record the original text in notes."
+    "at the correction point and record the original text in notes. "
+    "Do not alter any __DATA_IMAGE_TOKEN_n__ placeholders."
 )
 
 def build_user_prompt(text: str, index: int, total: int) -> str:
@@ -854,6 +873,7 @@ def build_user_prompt(text: str, index: int, total: int) -> str:
         "Rules:\\n"
         "- Preserve meaning; fix OCR errors and improve readability.\\n"
         "- Keep markdown structure.\\n"
+        "- Do not alter any __DATA_IMAGE_TOKEN_n__ placeholders.\\n"
         "- For each correction/removal, insert a placeholder [[FNn]] where the change occurs.\\n"
         "- Return ONLY JSON with keys: text, notes.\\n"
         "- notes is a list of objects: {\"id\": n, \"original\": \"...\", \"reason\": \"corrected\"|\"removed\"}.\\n"
@@ -991,6 +1011,13 @@ for idx, chunk in enumerate(chunks, start=1):
 
 cleaned = "\n\n".join(cleaned_chunks).rstrip()
 
+missing_tokens = [t for t in data_uri_map if t not in cleaned]
+if missing_tokens:
+    restored = ["", "## Embedded Images (restored)", ""]
+    for token in missing_tokens:
+        restored.append(f"![]({data_uri_map[token]})")
+    cleaned = cleaned + "\n" + "\n".join(restored)
+
 notes_section = ["", "---", "", "# OCR Corrections Notes", ""]
 if global_notes:
     for note_id, note_text in global_notes:
@@ -999,10 +1026,11 @@ else:
     notes_section.append("No corrections were logged.")
 
 cleaned = cleaned + "\n" + "\n".join(notes_section) + "\n"
+cleaned = restore_data_uris(cleaned)
 
 backup = path + ".bak"
 with open(backup, "w", encoding="utf-8") as handle:
-    handle.write(content)
+    handle.write(original_content)
 with open(path, "w", encoding="utf-8") as handle:
     handle.write(cleaned)
 
