@@ -607,28 +607,28 @@ with open(path, "r", encoding="utf-8", errors="ignore") as handle:
     content = handle.read()
 
 # Remove HTML image tags.
-content = re.sub(r"<img\\b[^>]*>", "", content, flags=re.IGNORECASE)
+content = re.sub(r"<img\b[^>]*>", "", content, flags=re.IGNORECASE)
 
 # Replace inline markdown images with their alt text.
 def repl_inline(match):
     alt = (match.group(1) or "").strip()
     return alt
 
-content = re.sub(r"!\\[([^\\]]*)\\]\\(([^)]+)\\)", repl_inline, content)
+content = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", repl_inline, content)
 
 # Replace reference-style markdown images with their alt text.
-content = re.sub(r"!\\[([^\\]]*)\\]\\[([^\\]]*)\\]", repl_inline, content)
+content = re.sub(r"!\[([^\]]*)\]\[([^\]]*)\]", repl_inline, content)
 
 # Drop reference definitions that point to common image formats or data URIs.
 def is_image_ref(url):
     url = url.lower()
     if url.startswith("data:image/"):
         return True
-    return re.search(r"\\.(png|jpg|jpeg|gif|svg|webp|bmp|tiff)(\\?|#|$)", url) is not None
+    return re.search(r"\.(png|jpg|jpeg|gif|svg|webp|bmp|tiff)(\?|#|$)", url) is not None
 
 lines = []
 for line in content.splitlines():
-    match = re.match(r"^\\s*\\[([^\\]]+)\\]:\\s*(\\S+)", line)
+    match = re.match(r"^\s*\[([^\]]+)\]:\s*(\S+)", line)
     if match and is_image_ref(match.group(2)):
         continue
     lines.append(line)
