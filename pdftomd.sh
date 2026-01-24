@@ -315,6 +315,8 @@ temp_merge_dir=""
 marker_pid=""
 marker_log=""
 marker_config_json=""
+marker_results_cleared=false
+marker_results_cleared=false
 
 #
 # FUNCTIONS
@@ -327,14 +329,25 @@ log() {
 	fi
 }
 
+# Clear marker conversion results to avoid stale partial outputs.
+clear_marker_results() {
+	if [ "$marker_results_cleared" = true ]; then
+		return
+	fi
+	if [ -n "$MARKER_RESULTS" ] && [ -d "$MARKER_RESULTS" ]; then
+		rm -rf "${MARKER_RESULTS:?}/"* >/dev/null 2>&1 || true
+		marker_results_cleared=true
+		log "Cleared marker results in $MARKER_RESULTS"
+	fi
+}
+
 # Build CLI args for re-invoking this script on multiple PDFs.
 build_cli_options() {
 	local opts=()
-	if [ "$CONVERT_BASE64" = true ]; then
-		opts+=("-e")
-	fi
 	if [ "$STRIP_IMAGE_LINKS" = true ]; then
 		opts+=("-t")
+	elif [ "$CONVERT_BASE64" = true ]; then
+		opts+=("-e")
 	fi
 	if [ "$VERBOSE" = true ]; then
 		opts+=("-v")
@@ -480,6 +493,10 @@ cleanup_temp() {
 	fi
 	if [ -n "$marker_config_json" ] && [ -f "$marker_config_json" ]; then
 		rm -f "$marker_config_json"
+	fi
+
+	if [ -n "$MARKER_RESULTS" ] && [ -d "$MARKER_RESULTS" ] && [ "$marker_results_cleared" = false ]; then
+		rm -rf "${MARKER_RESULTS:?}/"* >/dev/null 2>&1 || true
 	fi
 }
 
@@ -1131,7 +1148,7 @@ fi
 
 chunk_pages=100
 if [ "$USE_LLM" = true ]; then
-	chunk_pages=25
+	chunk_pages=10
 fi
 
 log ""
@@ -1172,6 +1189,7 @@ if [ "$SKIP_TO_ASSEMBLY" = false ]; then
 	source "$MARKER_VENV/bin/activate"
 	install_gpu_torch_if_needed
 	configure_torch_device
+	clear_marker_results
 
 	log "Begin processing chunks with Marker to create markdown files.  This may take a while..."
 	if [ "$SHOW_MARKER_OUTPUT" = true ]; then
@@ -1288,7 +1306,7 @@ JSON
 		fi
 		rm -f "$marker_timeout_flag"
 
-		if [ "$marker_status" -ne 0 ]; then
+		if (( marker_status != 0 )); then
 			report_marker_failure "$marker_log" "$marker_status"
 			exit "$marker_status"
 		fi

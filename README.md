@@ -4,7 +4,7 @@
 
 ## Why use the wrapper
 
-- Splits large PDFs into chunks (100 pages by default, 25 pages when `-l/--llm` is enabled) and runs Marker once on the chunk folder (avoids repeated model loads).
+- Splits large PDFs into chunks (100 pages by default, 10 pages when `-l/--llm` is enabled) and runs Marker once on the chunk folder (avoids repeated model loads).
 - Consolidates all chunk markdown into a single `.md` file.
 - Optionally embeds images as Base64 (no external asset folders needed).
 - Optional text-only output that strips image links from the final markdown.
@@ -64,7 +64,7 @@ This produces `file.md` in the current directory. If you are not embedding image
 - `-t, --text`: Remove image links from the final markdown (ignores `--embed`).
 - `-v, --verbose`: Show verbose output.
 - `-o, --ocr`: Run OCR via bundled `ocr-pdf/ocr-pdf.sh` before conversion (produces `<filename>_OCR.md`).
-- `-l, --llm`: Enable Marker LLM helper (`--use_llm`) during conversion. Copy `pdftomd.conf.pub` to `pdftomd.conf` and configure credentials (e.g., `GOOGLE_API_KEY`), then optionally set `LLM_SERVICE`. For OpenAI-compatible endpoints set `LLM_SERVICE=marker.services.openai.OpenAIService` and supply `OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_BASE_URL`. When `-l` is enabled, the wrapper uses smaller PDF chunks (25 pages instead of 100) to reduce prompt sizes, and it will abort/retry once without `--use_llm` if it detects a "Rate limit error" in Marker output.
+- `-l, --llm`: Enable Marker LLM helper (`--use_llm`) during conversion. Copy `pdftomd.conf.pub` to `pdftomd.conf` and configure credentials (e.g., `GOOGLE_API_KEY`), then optionally set `LLM_SERVICE`. For OpenAI-compatible endpoints set `LLM_SERVICE=marker.services.openai.OpenAIService` and supply `OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_BASE_URL`. When `-l` is enabled, the wrapper uses smaller PDF chunks (10 pages instead of 100) to reduce prompt sizes, and it will abort/retry once without `--use_llm` if it detects a "Rate limit error" in Marker output.
 - `-c, --cpu`: Force CPU processing (ignore GPU even if present).
 - `-w, --workers N`: Number of worker processes for marker (default is 1).
 - `-h, --help`: Show usage.
