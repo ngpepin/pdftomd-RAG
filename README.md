@@ -64,7 +64,7 @@ This produces `file.md` in the current directory. If you are not embedding image
 - `-t, --text`: Remove image links from the final markdown (ignores `--embed`).
 - `-v, --verbose`: Show verbose output.
 - `-o, --ocr`: Run OCR via bundled `ocr-pdf/ocr-pdf.sh` before conversion (produces `<filename>_OCR.md`).
-- `-l, --llm`: Enable Marker LLM helper (`--use_llm`) during conversion. Copy `pdftomd.conf.pub` to `pdftomd.conf` and configure credentials (e.g., `GOOGLE_API_KEY`), then optionally set `LLM_SERVICE`. For OpenAI-compatible endpoints set `LLM_SERVICE=marker.services.openai.OpenAIService` and supply `OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_BASE_URL`.
+- `-l, --llm`: Enable Marker LLM helper (`--use_llm`) during conversion. Copy `pdftomd.conf.pub` to `pdftomd.conf` and configure credentials (e.g., `GOOGLE_API_KEY`), then optionally set `LLM_SERVICE`. For OpenAI-compatible endpoints set `LLM_SERVICE=marker.services.openai.OpenAIService` and supply `OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_BASE_URL`. The wrapper will abort and retry once without `--use_llm` if it detects a "Rate limit error" in Marker output.
 - `-c, --cpu`: Force CPU processing (ignore GPU even if present).
 - `-w, --workers N`: Number of worker processes for marker (default is 1).
 - `-h, --help`: Show usage.
@@ -105,7 +105,9 @@ When `-o/--ocr` is enabled, the wrapper passes `--disable_ocr` to Marker so it d
 
 `-l/--llm` tells Marker to use its LLM helper during conversion. Marker does not enforce an input token cap for this helper; it sends the full prompt and relies on the backend model’s limits. `--clean` is a separate, wrapper-driven post-processing step that is more aggressive about fixing OCR errors and adds footnotes for traceability; it also chunk-splits the markdown based on `MAX_TOKENS` in `pdftomd.conf`.
 
-If you are hitting LLM timeouts or prompt-size limits, consider dropping `-l` while keeping `--clean`: the wrapper’s cleanup pass handles chunking more predictably, and still delivers improved readability after conversion.
+When `-l` is enabled, the wrapper monitors Marker output for "Rate limit error" and will abort and then retry calling Marker without the `--use_llm` option to see if that works.  This stops Marker from timing out repeatedly and, after quite some time has elapsed, ultimately erroring out. This detection is string-based and could be brittle if Marker’s log messaging changes.
+
+If the fallback keeps triggering (and time is being lost restarting the conversion), consider dropping `-l` while keeping `--clean`: the wrapper’s cleanup pass handles chunking more predictably, and still delivers improved readability after conversion.
 
 ## Removing OCR Corrections Notes
 

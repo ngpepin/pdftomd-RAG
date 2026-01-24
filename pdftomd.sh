@@ -1174,89 +1174,127 @@ if [ "$SKIP_TO_ASSEMBLY" = false ]; then
 	fi
 
 	# Run marker once for the chunk folder to avoid per-chunk model reloads.
-	marker_extra_args=(--timeout=240)
-	if [ "$USE_LLM" = true ]; then
-		marker_extra_args+=(--use_llm)
-	fi
-	if [ -n "$LLM_SERVICE" ]; then
-		marker_extra_args+=(--llm_service "$LLM_SERVICE")
-	fi
-	if [ "$USE_LLM" = true ] && [ "$LLM_SERVICE" = "marker.services.openai.OpenAIService" ]; then
-		if [ -n "$OPENAI_API_KEY" ] && [ "$OPENAI_API_KEY" != "..." ]; then
-			marker_extra_args+=(--openai_api_key "$OPENAI_API_KEY")
+	marker_use_llm_original="$USE_LLM"
+	marker_fallback_used=false
+	while true; do
+		if [ -n "$marker_config_json" ] && [ -f "$marker_config_json" ]; then
+			rm -f "$marker_config_json"
+			marker_config_json=""
 		fi
-		if [ -n "$OPENAI_MODEL" ] && [ "$OPENAI_MODEL" != "..." ]; then
-			marker_extra_args+=(--openai_model "$OPENAI_MODEL")
+
+		marker_extra_args=(--timeout=240)
+		if [ "$USE_LLM" = true ]; then
+			marker_extra_args+=(--use_llm)
 		fi
-		if [ -n "$OPENAI_BASE_URL" ] && [ "$OPENAI_BASE_URL" != "..." ]; then
-			marker_extra_args+=(--openai_base_url "$OPENAI_BASE_URL")
+		if [ -n "$LLM_SERVICE" ]; then
+			marker_extra_args+=(--llm_service "$LLM_SERVICE")
 		fi
-	fi
-	if [ "$USE_OCR" = true ]; then
-		marker_extra_args+=(--disable_ocr)
-	else
-		marker_config_json="$(mktemp)"
-		cat >"$marker_config_json" <<'JSON'
+		if [ "$USE_LLM" = true ] && [ "$LLM_SERVICE" = "marker.services.openai.OpenAIService" ]; then
+			if [ -n "$OPENAI_API_KEY" ] && [ "$OPENAI_API_KEY" != "..." ]; then
+				marker_extra_args+=(--openai_api_key "$OPENAI_API_KEY")
+			fi
+			if [ -n "$OPENAI_MODEL" ] && [ "$OPENAI_MODEL" != "..." ]; then
+				marker_extra_args+=(--openai_model "$OPENAI_MODEL")
+			fi
+			if [ -n "$OPENAI_BASE_URL" ] && [ "$OPENAI_BASE_URL" != "..." ]; then
+				marker_extra_args+=(--openai_base_url "$OPENAI_BASE_URL")
+			fi
+		fi
+		if [ "$USE_OCR" = true ]; then
+			marker_extra_args+=(--disable_ocr)
+		else
+			marker_config_json="$(mktemp)"
+			cat >"$marker_config_json" <<'JSON'
 {"force_ocr": true, "strip_existing_ocr": true}
 JSON
-		marker_extra_args+=(--config_json "$marker_config_json")
-	fi
-	cmd="marker '$chunk_dir' --output_dir '$MARKER_RESULTS' --workers $MARKER_WORKERS --timeout=240"
-	if [ "$USE_LLM" = true ]; then
-		cmd="$cmd --use_llm"
-	fi
-	if [ -n "$LLM_SERVICE" ]; then
-		cmd="$cmd --llm_service '$LLM_SERVICE'"
-	fi
-	if [ "$USE_LLM" = true ] && [ "$LLM_SERVICE" = "marker.services.openai.OpenAIService" ]; then
-		if [ -n "$OPENAI_API_KEY" ] && [ "$OPENAI_API_KEY" != "..." ]; then
-			cmd="$cmd --openai_api_key '[redacted]'"
+			marker_extra_args+=(--config_json "$marker_config_json")
 		fi
-		if [ -n "$OPENAI_MODEL" ] && [ "$OPENAI_MODEL" != "..." ]; then
-			cmd="$cmd --openai_model '$OPENAI_MODEL'"
+		cmd="marker '$chunk_dir' --output_dir '$MARKER_RESULTS' --workers $MARKER_WORKERS --timeout=240"
+		if [ "$USE_LLM" = true ]; then
+			cmd="$cmd --use_llm"
 		fi
-		if [ -n "$OPENAI_BASE_URL" ] && [ "$OPENAI_BASE_URL" != "..." ]; then
-			cmd="$cmd --openai_base_url '$OPENAI_BASE_URL'"
+		if [ -n "$LLM_SERVICE" ]; then
+			cmd="$cmd --llm_service '$LLM_SERVICE'"
 		fi
-	fi
-	if [ "$USE_OCR" = true ]; then
-		cmd="$cmd --disable_ocr"
-	elif [ -n "$marker_config_json" ]; then
-		cmd="$cmd --config_json '$marker_config_json'"
-	fi
-	marker_log="$(mktemp)"
-	if [ "$SHOW_MARKER_OUTPUT" = true ]; then
-		echo "Running Marker command: $cmd"
-		(
-			marker "$chunk_dir" --output_dir "$MARKER_RESULTS" --workers "$MARKER_WORKERS" "${marker_extra_args[@]}" 2>&1 | tee "$marker_log"
-		) &
+		if [ "$USE_LLM" = true ] && [ "$LLM_SERVICE" = "marker.services.openai.OpenAIService" ]; then
+			if [ -n "$OPENAI_API_KEY" ] && [ "$OPENAI_API_KEY" != "..." ]; then
+				cmd="$cmd --openai_api_key '[redacted]'"
+			fi
+			if [ -n "$OPENAI_MODEL" ] && [ "$OPENAI_MODEL" != "..." ]; then
+				cmd="$cmd --openai_model '$OPENAI_MODEL'"
+			fi
+			if [ -n "$OPENAI_BASE_URL" ] && [ "$OPENAI_BASE_URL" != "..." ]; then
+				cmd="$cmd --openai_base_url '$OPENAI_BASE_URL'"
+			fi
+		fi
+		if [ "$USE_OCR" = true ]; then
+			cmd="$cmd --disable_ocr"
+		elif [ -n "$marker_config_json" ]; then
+			cmd="$cmd --config_json '$marker_config_json'"
+		fi
+		marker_log="$(mktemp)"
+		marker_timeout_flag="$(mktemp)"
+		rm -f "$marker_timeout_flag"
+		monitor_pid=""
+		if [ "$SHOW_MARKER_OUTPUT" = true ]; then
+			echo "Running Marker command: $cmd"
+			(
+				marker "$chunk_dir" --output_dir "$MARKER_RESULTS" --workers "$MARKER_WORKERS" "${marker_extra_args[@]}" 2>&1 | tee "$marker_log"
+			) &
+		else
+			(
+				marker "$chunk_dir" --output_dir "$MARKER_RESULTS" --workers "$MARKER_WORKERS" "${marker_extra_args[@]}" >"$marker_log" 2>&1
+			) &
+		fi
 		marker_pid=$!
+
+		if [ "$USE_LLM" = true ]; then
+			(
+				tail -n +1 -F "$marker_log" 2>/dev/null | while read -r line; do
+					if [[ "$line" == *"Rate limit error"* ]]; then
+						echo "$line" >"$marker_timeout_flag"
+						pkill -TERM -P "$marker_pid" >/dev/null 2>&1 || true
+						kill "$marker_pid" >/dev/null 2>&1 || true
+						break
+					fi
+				done
+			) &
+			monitor_pid=$!
+		fi
+
 		if wait "$marker_pid"; then
 			marker_status=0
 		else
 			marker_status=$?
 		fi
-	else
-		(
-			marker "$chunk_dir" --output_dir "$MARKER_RESULTS" --workers "$MARKER_WORKERS" "${marker_extra_args[@]}" >"$marker_log" 2>&1
-		) &
-		marker_pid=$!
-		if wait "$marker_pid"; then
-			marker_status=0
-		else
-			marker_status=$?
+		marker_pid=""
+
+		if [ -n "$monitor_pid" ]; then
+			kill "$monitor_pid" >/dev/null 2>&1 || true
+			wait "$monitor_pid" >/dev/null 2>&1 || true
 		fi
-	fi
-	marker_pid=""
-	if [ "$marker_status" -ne 0 ]; then
-		report_marker_failure "$marker_log" "$marker_status"
-		exit "$marker_status"
-	fi
-	# Convert failures can be logged even if marker exits 0; detect and fail fast.
-	if marker_log_has_failure "$marker_log"; then
-		report_marker_failure "$marker_log" 1
-		exit 1
-	fi
+
+		if [ -f "$marker_timeout_flag" ] && [ "$USE_LLM" = true ] && [ "$marker_fallback_used" = false ]; then
+			rm -f "$marker_timeout_flag"
+			marker_fallback_used=true
+			log "Detected marker rate limit error; retrying without --use_llm."
+			USE_LLM=false
+			continue
+		fi
+		rm -f "$marker_timeout_flag"
+
+		if [ "$marker_status" -ne 0 ]; then
+			report_marker_failure "$marker_log" "$marker_status"
+			exit "$marker_status"
+		fi
+		# Convert failures can be logged even if marker exits 0; detect and fail fast.
+		if marker_log_has_failure "$marker_log"; then
+			report_marker_failure "$marker_log" 1
+			exit 1
+		fi
+		break
+	done
+	USE_LLM="$marker_use_llm_original"
 
 	if [ "$SHOW_MARKER_OUTPUT" = true ]; then
 		echo "----------------------------------------------------------------------------------------------------------------------------------------------------------------"
