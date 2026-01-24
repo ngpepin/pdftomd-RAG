@@ -7,7 +7,7 @@ This file captures local project quirks and workflow notes for humans or coding 
 - Convenience wrapper: `pdftomd.sh` in repo root for PDF-to-markdown with chunking, GPU handling, and output consolidation.
 
 ## pdftomd.sh behavior
-- Splits the input PDF into 100-page chunks with `qpdf`, processes all chunks in one `marker` run to avoid repeated model loads, then merges markdown.
+- Splits the input PDF into 100-page chunks with `qpdf` (25 pages when `-l/--llm` is enabled), processes all chunks in one `marker` run to avoid repeated model loads, then merges markdown.
 - Output `.md` is moved to the directory where the script is run (not the PDF directory).
 - `-o/--ocr` runs the bundled `ocr-pdf/ocr-pdf.sh` first, creating `<filename>_OCR.pdf` in the current directory and producing `<filename>_OCR.md` (OCR script output is hidden unless `-v` is set).
 - `-l/--llm` passes `--use_llm` to Marker; copy `pdftomd.conf.pub` to `pdftomd.conf` and set `LLM_SERVICE` if you need a non-default LLM service. For OpenAI-compatible endpoints use `marker.services.openai.OpenAIService` and set `OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_BASE_URL`.

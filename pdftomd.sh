@@ -1129,12 +1129,17 @@ fi
 # SPLIT PDF INTO CHUNKS
 # ----------------------------------------------
 
+chunk_pages=100
+if [ "$USE_LLM" = true ]; then
+	chunk_pages=25
+fi
+
 log ""
-log "Splitting '$source_no_dir' into 100-page chunks for processing by Marker"
+log "Splitting '$source_no_dir' into ${chunk_pages}-page chunks for processing by Marker"
 cd "$directory" || exit
 
 if [ "$SKIP_TO_ASSEMBLY" = false ]; then
-	run_quiet qpdf --split-pages=100 "$source_pdf" "$output_split_files"
+	run_quiet qpdf --split-pages="$chunk_pages" "$source_pdf" "$output_split_files"
 fi
 
 # Get the list of the resulting chunked PDF files
