@@ -1516,12 +1516,21 @@ if [ -n "$bundle_archive" ]; then
 	bundle_archive_name="$(basename "$bundle_archive")"
 fi
 
-if [ "$directory" != "$start_directory" ]; then
-	mv -f "$consolidated_md_file" "$md_target"
-	if [ -n "$bundle_archive" ] && [ -f "$bundle_archive" ]; then
-		mv -f "$bundle_archive" "$start_directory"
-	fi
-else
+	if [ "$directory" != "$start_directory" ]; then
+		if [ -e "$md_target" ] && [ "$consolidated_md_file" -ef "$md_target" ]; then
+			md_target="$consolidated_md_file"
+		else
+			if [ -e "$md_target" ]; then
+				backup_md_target="$(get_unique_filename "${md_target}.bak")"
+				mv -f "$md_target" "$backup_md_target"
+				log "Existing output backed up to $backup_md_target"
+			fi
+			mv -f "$consolidated_md_file" "$md_target"
+		fi
+		if [ -n "$bundle_archive" ] && [ -f "$bundle_archive" ]; then
+			mv -f "$bundle_archive" "$start_directory"
+		fi
+	else
 	md_target="$consolidated_md_file"
 fi
 
