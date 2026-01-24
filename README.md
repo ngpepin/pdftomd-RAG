@@ -20,8 +20,8 @@ The overall result can be a much cleaner more streamlined end product more suite
 
 Run `pdftomd.sh` as the ingestion step that turns source PDFs into markdown your splitter and embedder can consume. A typical flow is:
 
-1. (Optional) OCR the PDF with `-o` for scanned documents.
-2. Convert to a single consolidated markdown file (and optionally embed images with `-e`).
+1. (Optional) OCR the PDF with `-o` for scanned documents or rely on Marker's built-in OCR.
+2. Convert to a single consolidated markdown file (and optionally embed images with `-e` or ignore images altogether with `-t`).
 3. Feed the markdown into your chunker, add metadata (file name, page ranges), then index.
 
 Example ingestion command:
@@ -66,6 +66,7 @@ This produces `file.md` in the current directory. If you are not embedding image
 - `-o, --ocr`: Run OCR via bundled `ocr-pdf/ocr-pdf.sh` before conversion (produces `<filename>_OCR.md`).
 - `-l, --llm`: Enable Marker LLM helper (`--use_llm`) during conversion. Copy `pdftomd.conf.pub` to `pdftomd.conf` and configure credentials (e.g., `GOOGLE_API_KEY`), then optionally set `LLM_SERVICE`. For OpenAI-compatible endpoints set `LLM_SERVICE=marker.services.openai.OpenAIService` and supply `OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_BASE_URL`. When `-l` is enabled, the wrapper uses smaller PDF chunks (10 pages instead of 100) to reduce prompt sizes, and it will abort/retry once without `--use_llm` if it detects a "Rate limit error" in Marker output.
 - `-c, --cpu`: Force CPU processing (ignore GPU even if present).
+- `-r, --recurse`: Recursively process PDFs when a directory is provided.
 - `-w, --workers N`: Number of worker processes for marker (default is 1).
 - `-h, --help`: Show usage.
 - `--clean`: Post-process the final markdown with the configured LLM to improve readability and fix OCR errors. Creates a `.bak` of the original markdown and appends footnotes with original text. This is a wrapper-level cleanup pass and can be used together with `-l`. Note that it can result in longer conversion times.
