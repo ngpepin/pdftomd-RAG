@@ -12,6 +12,7 @@ This file captures local project quirks and workflow notes for humans or coding 
 - `-o/--ocr` runs the bundled `ocr-pdf/ocr-pdf.sh` first, creating `<filename>_OCR.pdf` in the current directory and producing `<filename>_OCR.md` (OCR script output is hidden unless `-v` is set).
 - `-l/--llm` passes `--use_llm` to Marker; copy `pdftomd.conf.pub` to `pdftomd.conf` and set `LLM_SERVICE` if you need a non-default LLM service. For OpenAI-compatible endpoints use `marker.services.openai.OpenAIService` and set `OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_BASE_URL`.
 - `-l/--llm` enables Marker’s LLM helper during conversion; `--clean` is a separate wrapper post-process that aggressively fixes OCR errors and appends footnote-style correction notes (original saved as `.bak`). Use `--preclean-copy` to save the pre-clean markdown as `<name>_preclean.md`. Both can be used together. Configure chunking with `MAX_TOKENS` in `pdftomd.conf`.
+- Marker’s LLM helper does not enforce an input token cap; it sends the full prompt and relies on the backend model for limits. Only output token limits are configurable via service settings.
 - Use `remove-OCR-correction.sh` to remove the `OCR Corrections Notes` section and its footnote references from a `--clean` output (creates a `.bak` by default; `-o` writes to a new file).
 - If images are not embedded, it bundles attachments into `<name>_bundle.tar.xz` and instructs the user to extract it.
 - Default is GPU if available; use `-c/--cpu` to force CPU.

@@ -459,8 +459,8 @@ cleanup_temp() {
 		kill -9 "$marker_pid" >/dev/null 2>&1 || true
 	fi
 
-	if [ -n "$chunk_dir" ] && command -v pgrep >/dev/null 2>&1; then
-		marker_pids=$(pgrep -f "marker .*${chunk_dir}")
+		if [ -n "$chunk_dir" ] && command -v pgrep >/dev/null 2>&1; then
+			marker_pids=$(pgrep -f "marker .*${chunk_dir}" || true)
 		if [ -n "$marker_pids" ]; then
 			log "Stopping marker processes for $chunk_dir"
 			kill $marker_pids >/dev/null 2>&1 || true
@@ -1174,7 +1174,7 @@ if [ "$SKIP_TO_ASSEMBLY" = false ]; then
 	fi
 
 	# Run marker once for the chunk folder to avoid per-chunk model reloads.
-	marker_extra_args=()
+	marker_extra_args=(--timeout=240)
 	if [ "$USE_LLM" = true ]; then
 		marker_extra_args+=(--use_llm)
 	fi
@@ -1201,7 +1201,7 @@ if [ "$SKIP_TO_ASSEMBLY" = false ]; then
 JSON
 		marker_extra_args+=(--config_json "$marker_config_json")
 	fi
-	cmd="marker '$chunk_dir' --output_dir '$MARKER_RESULTS' --workers $MARKER_WORKERS"
+	cmd="marker '$chunk_dir' --output_dir '$MARKER_RESULTS' --workers $MARKER_WORKERS --timeout=240"
 	if [ "$USE_LLM" = true ]; then
 		cmd="$cmd --use_llm"
 	fi
@@ -1358,7 +1358,7 @@ for i in "${!file_array[@]}"; do
 			rm -fr "$temp_md_dir"
 
 			# change all links in the markdown file to point to the attachments directory
-			sed -i "s|!\[\(.*\)\](\(.*\))|![\1]($attachments_dir/\2)|g" "$file_no_ext$extmd"
+			sed -i -E "s|!\\[([^]]*)\\]\\(([^)]+)\\)|![\\1](${attachments_dir}/\\2)|g" "$file_no_ext$extmd"
 
 			# move the markdown file to the original directory where the PDF file is located
 			if [ "$DEBUG" = true ]; then

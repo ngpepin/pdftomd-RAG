@@ -35,6 +35,7 @@ Benefits over calling Marker directly:
 - Handles large documents via chunking while keeping a single output file, which simplifies downstream chunking and metadata.
 - Avoids repeated model loads by running Marker once across all chunks, improving throughput for big PDFs.
 - Keeps assets self-contained with Base64 embedding or a single attachment bundle, reducing file management for ingestion jobs.
+- Adds a wrapper-managed LLM cleanup pass (`--clean`) with explicit chunking via `MAX_TOKENS`, which can handle prompt-size limits and timeouts more predictably than Marker’s built-in LLM helper.
 - Provides operational glue (GPU detection, torch install, cleanup on exit, consistent output location) so pipeline orchestration is simpler.
 
 ## Quick start
@@ -102,7 +103,9 @@ When `-o/--ocr` is enabled, the wrapper passes `--disable_ocr` to Marker so it d
 
 ## LLM note
 
-`-l/--llm` tells Marker to use its LLM helper during conversion. `--clean` is a separate, wrapper-driven post-processing step that is more aggressive about fixing OCR errors and adds footnotes for traceability; it’s also a clear example of how this wrapper adds value beyond vanilla Marker. You can use both together: `-l` improves Marker’s extraction fidelity, while `--clean` refines the final markdown afterward.
+`-l/--llm` tells Marker to use its LLM helper during conversion. Marker does not enforce an input token cap for this helper; it sends the full prompt and relies on the backend model’s limits. `--clean` is a separate, wrapper-driven post-processing step that is more aggressive about fixing OCR errors and adds footnotes for traceability; it also chunk-splits the markdown based on `MAX_TOKENS` in `pdftomd.conf`.
+
+If you are hitting LLM timeouts or prompt-size limits, consider dropping `-l` while keeping `--clean`: the wrapper’s cleanup pass handles chunking more predictably, and still delivers improved readability after conversion.
 
 ## Removing OCR Corrections Notes
 
