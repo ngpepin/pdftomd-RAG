@@ -70,6 +70,7 @@ OCR_SCRIPT="$SCRIPT_DIR/ocr-pdf/ocr-pdf.sh"
 OCR_OPTIONS="-aq" # Options to pass to the OCR script
 USE_LLM=false
 LLM_SERVICE=""
+INTERRUPTED=false
 # OCR layer stripping controls (when -o/--ocr is NOT used)
 STRIP_OCR_LAYER_MODE="auto" # auto | force | off
 OCR_DETECT_INVISIBLE_RATIO="0.6" # Fraction of text runs rendered invisible to flag OCR
@@ -86,6 +87,295 @@ else
 	OPENAI_MODEL="gpt-4.1"
 	OPENAI_BASE_URL="https://api.openai.com/v1"
 fi
+
+# Log only when verbose mode is enabled.
+log() {
+	if [ "$VERBOSE" = true ]; then
+		echo "$@"
+	fi
+}
+
+# Build CLI args for re-invoking this script on multiple PDFs.
+build_cli_options() {
+	local opts=()
+	if [ "$STRIP_IMAGE_LINKS" = true ]; then
+		opts+=("-t")
+	elif [ "$CONVERT_BASE64" = true ]; then
+		opts+=("-e")
+	fi
+	if [ "$VERBOSE" = true ]; then
+		opts+=("-v")
+	fi
+	if [ "$USE_OCR" = true ]; then
+		opts+=("-o")
+	fi
+	if [ "$USE_LLM" = true ]; then
+		opts+=("-l")
+	fi
+	if [ "$STRIP_OCR_LAYER_MODE" = "force" ]; then
+		opts+=("-s")
+	elif [ "$STRIP_OCR_LAYER_MODE" = "off" ]; then
+		opts+=("--no-strip-ocr-layer")
+	fi
+	if [ "$FORCE_CPU" = true ]; then
+		opts+=("-c")
+	fi
+	if [ "$RECURSE_DIR" = true ]; then
+		opts+=("-r")
+	fi
+	if [ "$CLEAN_MARKDOWN" = true ]; then
+		opts+=("--clean")
+	fi
+	if [ "$PRECLEAN_COPY" = true ]; then
+		opts+=("--preclean-copy")
+	fi
+	if [ -n "${MARKER_WORKERS:-}" ]; then
+		opts+=("-w" "$MARKER_WORKERS")
+	fi
+	printf '%s\n' "${opts[@]}"
+}
+
+process_directory() {
+	local dir="$1"
+	local pdfs=()
+	shopt -s nullglob
+	if [ "$RECURSE_DIR" = true ]; then
+		mapfile -t pdfs < <(find "$dir" -type f \( -iname "*.pdf" \) | sort)
+	else
+		pdfs=("$dir"/*.pdf "$dir"/*.PDF)
+	fi
+	shopt -u nullglob
+	if [ "${#pdfs[@]}" -eq 0 ]; then
+		echo "Error: No PDF files found in directory: $dir" >&2
+		exit 1
+	fi
+	mapfile -t dir_opts < <(build_cli_options)
+	local failures=0
+	for pdf in "${pdfs[@]}"; do
+		echo "Processing PDF in directory: $(basename "$pdf")"
+		if "$SCRIPT_DIR/pdftomd.sh" "${dir_opts[@]}" "$pdf"; then
+			:
+		else
+			local status=$?
+			if [ "$status" -ge 128 ]; then
+				echo "Interrupted; stopping directory processing." >&2
+				exit "$status"
+			fi
+			failures=$((failures + 1))
+			echo "Warning: Failed processing $pdf" >&2
+		fi
+	done
+	if [ "$failures" -gt 0 ]; then
+		echo "Error: $failures PDF(s) failed during directory processing." >&2
+		exit 1
+	fi
+	exit 0
+}
+
+# Ensure a Python package is installed in the Marker venv.
+ensure_marker_python_pkg() {
+	local pkg="$1"
+	local py="$MARKER_DIRECTORY/$MARKER_VENV/bin/python"
+	if [ ! -x "$py" ]; then
+		echo "Error: Marker venv python not found at $py" >&2
+		return 1
+	fi
+	if "$py" - <<PY >/dev/null 2>&1
+import importlib.util
+import sys
+sys.exit(0 if importlib.util.find_spec("$pkg") else 1)
+PY
+	then
+		return 0
+	fi
+	log "Installing Python package '$pkg' into Marker venv..."
+	"$py" -m pip install --disable-pip-version-check -q "$pkg"
+}
+
+# Detect whether a PDF likely contains an OCR text layer (returns 0 if detected).
+detect_ocr_layer_fast() {
+	local input_file="$1"
+	local py="$MARKER_DIRECTORY/$MARKER_VENV/bin/python"
+	if ! ensure_marker_python_pkg "PyPDF2"; then
+		echo "Warning: Unable to ensure PyPDF2; skipping OCR detection." >&2
+		return 1
+	fi
+	OCR_DETECT_INVISIBLE_RATIO="$OCR_DETECT_INVISIBLE_RATIO" \
+	OCR_DETECT_MIN_PAGE_RATIO="$OCR_DETECT_MIN_PAGE_RATIO" \
+	OCR_DETECT_MIN_PAGES="$OCR_DETECT_MIN_PAGES" \
+	"$py" - "$input_file" <<'PY'
+import os
+import sys
+from PyPDF2 import PdfReader
+from PyPDF2.generic import ContentStream
+
+inv_threshold = float(os.environ.get("OCR_DETECT_INVISIBLE_RATIO", "0.6"))
+min_page_ratio = float(os.environ.get("OCR_DETECT_MIN_PAGE_RATIO", "0.3"))
+min_pages = int(os.environ.get("OCR_DETECT_MIN_PAGES", "2"))
+
+reader = PdfReader(sys.argv[1])
+total_pages = len(reader.pages)
+flagged_pages = 0
+
+def page_has_image(page):
+    resources = page.get("/Resources") or {}
+    xobj = resources.get("/XObject")
+    if not xobj:
+        return False
+    try:
+        xobj = xobj.get_object()
+    except Exception:
+        pass
+    for obj in xobj.values():
+        try:
+            obj = obj.get_object()
+        except Exception:
+            pass
+        if obj.get("/Subtype") == "/Image":
+            return True
+    return False
+
+def count_text_ops(page, reader):
+    contents = page.get_contents()
+    if contents is None:
+        return 0, 0
+    cs = ContentStream(contents, reader)
+    in_text = False
+    text_render = 0
+    text_ops = 0
+    invisible_ops = 0
+    for operands, operator in cs.operations:
+        if operator == b"BT":
+            in_text = True
+            continue
+        if operator == b"ET":
+            in_text = False
+            continue
+        if operator == b"Tr":
+            try:
+                text_render = int(operands[0])
+            except Exception:
+                text_render = 0
+            continue
+        if not in_text:
+            continue
+        if operator in (b"Tj", b"'", b'"'):
+            text_ops += 1
+            if text_render == 3:
+                invisible_ops += 1
+        elif operator == b"TJ":
+            text_ops += 1
+            if text_render == 3:
+                invisible_ops += 1
+    return text_ops, invisible_ops
+
+if total_pages == 0:
+    sys.exit(1)
+
+for page in reader.pages:
+    if not page_has_image(page):
+        continue
+    text_ops, invisible_ops = count_text_ops(page, reader)
+    if text_ops == 0:
+        continue
+    if invisible_ops / text_ops >= inv_threshold:
+        flagged_pages += 1
+
+if flagged_pages >= min_pages or (flagged_pages / total_pages) >= min_page_ratio:
+    sys.exit(0)
+sys.exit(1)
+PY
+}
+
+# Strip text objects from the PDF content streams (removes OCR text layer).
+strip_ocr_layer_fast() {
+	local input_file="$1"
+	local output_file="$2"
+	local py="$MARKER_DIRECTORY/$MARKER_VENV/bin/python"
+	if ! ensure_marker_python_pkg "PyPDF2"; then
+		echo "Warning: Unable to ensure PyPDF2; skipping OCR layer stripping." >&2
+		return 1
+	fi
+	local tmp_err
+	local retry_err
+	local repaired_pdf
+	local status
+	local did_retry=false
+
+	run_strip() {
+		local src="$1"
+		local dst="$2"
+		local err_file="$3"
+		"$py" - "$src" "$dst" 2>"$err_file" <<'PY'
+import sys
+from PyPDF2 import PdfReader, PdfWriter
+from PyPDF2.generic import ContentStream, NameObject
+
+src = sys.argv[1]
+dst = sys.argv[2]
+
+reader = PdfReader(src)
+writer = PdfWriter()
+
+for page in reader.pages:
+    contents = page.get_contents()
+    if contents is not None:
+        cs = ContentStream(contents, reader)
+        new_ops = []
+        in_text = False
+        for operands, operator in cs.operations:
+            if operator == b"BT":
+                in_text = True
+                continue
+            if operator == b"ET":
+                in_text = False
+                continue
+            if in_text:
+                continue
+            new_ops.append((operands, operator))
+        cs.operations = new_ops
+        page[NameObject("/Contents")] = cs
+    writer.add_page(page)
+
+with open(dst, "wb") as handle:
+    writer.write(handle)
+PY
+		return $?
+	}
+
+	tmp_err="$(mktemp)"
+	run_strip "$input_file" "$output_file" "$tmp_err"
+	status=$?
+
+	if grep -Eqi "Invalid stream|Stream has ended unexpectedly" "$tmp_err"; then
+		did_retry=true
+		if ! command -v qpdf >/dev/null 2>&1; then
+			echo "Warning: qpdf not found; cannot attempt repair. Proceeding without repair." >&2
+		else
+			echo "Warning: Detected malformed PDF stream; attempting qpdf --repair and retrying strip." >&2
+			repaired_pdf="$(mktemp --suffix=.pdf)"
+			if qpdf --repair "$input_file" "$repaired_pdf" >/dev/null 2>&1; then
+				retry_err="$(mktemp)"
+				run_strip "$repaired_pdf" "$output_file" "$retry_err"
+				status=$?
+				if [ -s "$retry_err" ]; then
+					cat "$retry_err" >&2
+				fi
+				rm -f "$retry_err"
+			else
+				echo "Warning: qpdf --repair failed; proceeding with original PDF." >&2
+			fi
+			rm -f "$repaired_pdf"
+		fi
+	fi
+
+	if [ -s "$tmp_err" ] && [ "$did_retry" = false ]; then
+		cat "$tmp_err" >&2
+	fi
+	rm -f "$tmp_err"
+	return "$status"
+}
+
 # DO NOT MODIFY BELOW THIS LINE
 # ----------------------------------------------
 
@@ -257,9 +547,9 @@ source_pdf=$(realpath "$source_pdf")
 
 if [ -d "$source_pdf" ]; then
 	if [ "$RECURSE_DIR" = false ]; then
-		log "Directory detected; processing PDFs in '$source_pdf' (non-recursive)."
+		echo "Directory detected; processing PDFs in '$source_pdf' (non-recursive)."
 	else
-		log "Directory detected; processing PDFs in '$source_pdf' recursively."
+		echo "Directory detected; processing PDFs in '$source_pdf' recursively."
 	fi
 	process_directory "$source_pdf"
 fi
@@ -318,7 +608,7 @@ if [ "$USE_OCR" = false ]; then
 	off)
 		;;
 	force)
-		echo "Stripping existing OCR text layer from PDF (forced)..."
+		echo "Stripping existing OCR text layer from PDF (forced): $(basename "$source_pdf")"
 		strip_ocr_dir="$(mktemp -d)"
 		stripped_pdf="$strip_ocr_dir/$(basename "$source_pdf")"
 		if strip_ocr_layer_fast "$source_pdf" "$stripped_pdf"; then
@@ -330,9 +620,9 @@ if [ "$USE_OCR" = false ]; then
 		fi
 		;;
 	auto)
-		echo "Detecting OCR text layer..."
+		echo "Detecting OCR text layer: $(basename "$source_pdf")"
 		if detect_ocr_layer_fast "$source_pdf"; then
-			echo "Detected OCR text layer; stripping..."
+			echo "Detected OCR text layer; stripping: $(basename "$source_pdf")"
 			strip_ocr_dir="$(mktemp -d)"
 			stripped_pdf="$strip_ocr_dir/$(basename "$source_pdf")"
 			if strip_ocr_layer_fast "$source_pdf" "$stripped_pdf"; then
@@ -378,177 +668,6 @@ marker_results_cleared=false
 strip_ocr_dir=""
 strip_ocr_dir=""
 
-#
-# FUNCTIONS
-# ----------------------------------------------
-
-# Log only when verbose mode is enabled.
-log() {
-	if [ "$VERBOSE" = true ]; then
-		echo "$@"
-	fi
-}
-
-# Ensure a Python package is installed in the Marker venv.
-ensure_marker_python_pkg() {
-	local pkg="$1"
-	local py="$MARKER_DIRECTORY/$MARKER_VENV/bin/python"
-	if [ ! -x "$py" ]; then
-		echo "Error: Marker venv python not found at $py" >&2
-		return 1
-	fi
-	if "$py" - <<PY >/dev/null 2>&1
-import importlib.util
-import sys
-sys.exit(0 if importlib.util.find_spec("$pkg") else 1)
-PY
-	then
-		return 0
-	fi
-	log "Installing Python package '$pkg' into Marker venv..."
-	"$py" -m pip install --disable-pip-version-check -q "$pkg"
-}
-
-# Detect whether a PDF likely contains an OCR text layer (returns 0 if detected).
-detect_ocr_layer_fast() {
-	local input_file="$1"
-	local py="$MARKER_DIRECTORY/$MARKER_VENV/bin/python"
-	if ! ensure_marker_python_pkg "PyPDF2"; then
-		echo "Warning: Unable to ensure PyPDF2; skipping OCR detection." >&2
-		return 1
-	fi
-	OCR_DETECT_INVISIBLE_RATIO="$OCR_DETECT_INVISIBLE_RATIO" \
-	OCR_DETECT_MIN_PAGE_RATIO="$OCR_DETECT_MIN_PAGE_RATIO" \
-	OCR_DETECT_MIN_PAGES="$OCR_DETECT_MIN_PAGES" \
-	"$py" - "$input_file" <<'PY'
-import os
-import sys
-from PyPDF2 import PdfReader
-from PyPDF2.generic import ContentStream
-
-inv_threshold = float(os.environ.get("OCR_DETECT_INVISIBLE_RATIO", "0.6"))
-min_page_ratio = float(os.environ.get("OCR_DETECT_MIN_PAGE_RATIO", "0.3"))
-min_pages = int(os.environ.get("OCR_DETECT_MIN_PAGES", "2"))
-
-reader = PdfReader(sys.argv[1])
-total_pages = len(reader.pages)
-flagged_pages = 0
-
-def page_has_image(page):
-    resources = page.get("/Resources") or {}
-    xobj = resources.get("/XObject")
-    if not xobj:
-        return False
-    try:
-        xobj = xobj.get_object()
-    except Exception:
-        pass
-    for obj in xobj.values():
-        try:
-            obj = obj.get_object()
-        except Exception:
-            pass
-        if obj.get("/Subtype") == "/Image":
-            return True
-    return False
-
-def count_text_ops(page, reader):
-    contents = page.get_contents()
-    if contents is None:
-        return 0, 0
-    cs = ContentStream(contents, reader)
-    in_text = False
-    text_render = 0
-    text_ops = 0
-    invisible_ops = 0
-    for operands, operator in cs.operations:
-        if operator == b"BT":
-            in_text = True
-            continue
-        if operator == b"ET":
-            in_text = False
-            continue
-        if operator == b"Tr":
-            try:
-                text_render = int(operands[0])
-            except Exception:
-                text_render = 0
-            continue
-        if not in_text:
-            continue
-        if operator in (b"Tj", b"'", b'"'):
-            text_ops += 1
-            if text_render == 3:
-                invisible_ops += 1
-        elif operator == b"TJ":
-            text_ops += 1
-            if text_render == 3:
-                invisible_ops += 1
-    return text_ops, invisible_ops
-
-if total_pages == 0:
-    sys.exit(1)
-
-for page in reader.pages:
-    if not page_has_image(page):
-        continue
-    text_ops, invisible_ops = count_text_ops(page, reader)
-    if text_ops == 0:
-        continue
-    if invisible_ops / text_ops >= inv_threshold:
-        flagged_pages += 1
-
-if flagged_pages >= min_pages or (flagged_pages / total_pages) >= min_page_ratio:
-    sys.exit(0)
-sys.exit(1)
-PY
-}
-
-# Strip text objects from the PDF content streams (removes OCR text layer).
-strip_ocr_layer_fast() {
-	local input_file="$1"
-	local output_file="$2"
-	local py="$MARKER_DIRECTORY/$MARKER_VENV/bin/python"
-	if ! ensure_marker_python_pkg "PyPDF2"; then
-		echo "Warning: Unable to ensure PyPDF2; skipping OCR layer stripping." >&2
-		return 1
-	fi
-	"$py" - "$input_file" "$output_file" <<'PY'
-import sys
-from PyPDF2 import PdfReader, PdfWriter
-from PyPDF2.generic import ContentStream, NameObject
-
-src = sys.argv[1]
-dst = sys.argv[2]
-
-reader = PdfReader(src)
-writer = PdfWriter()
-
-for page in reader.pages:
-    contents = page.get_contents()
-    if contents is not None:
-        cs = ContentStream(contents, reader)
-        new_ops = []
-        in_text = False
-        for operands, operator in cs.operations:
-            if operator == b"BT":
-                in_text = True
-                continue
-            if operator == b"ET":
-                in_text = False
-                continue
-            if in_text:
-                continue
-            new_ops.append((operands, operator))
-        cs.operations = new_ops
-        page[NameObject("/Contents")] = cs
-    writer.add_page(page)
-
-with open(dst, "wb") as handle:
-    writer.write(handle)
-PY
-}
-
 # Clear marker conversion results to avoid stale partial outputs.
 clear_marker_results() {
 	if [ "$marker_results_cleared" = true ]; then
@@ -559,76 +678,6 @@ clear_marker_results() {
 		marker_results_cleared=true
 		log "Cleared marker results in $MARKER_RESULTS"
 	fi
-}
-
-# Build CLI args for re-invoking this script on multiple PDFs.
-build_cli_options() {
-	local opts=()
-	if [ "$STRIP_IMAGE_LINKS" = true ]; then
-		opts+=("-t")
-	elif [ "$CONVERT_BASE64" = true ]; then
-		opts+=("-e")
-	fi
-	if [ "$VERBOSE" = true ]; then
-		opts+=("-v")
-	fi
-	if [ "$USE_OCR" = true ]; then
-		opts+=("-o")
-	fi
-	if [ "$USE_LLM" = true ]; then
-		opts+=("-l")
-	fi
-	if [ "$STRIP_OCR_LAYER_MODE" = "force" ]; then
-		opts+=("-s")
-	elif [ "$STRIP_OCR_LAYER_MODE" = "off" ]; then
-		opts+=("--no-strip-ocr-layer")
-	fi
-	if [ "$FORCE_CPU" = true ]; then
-		opts+=("-c")
-	fi
-	if [ "$RECURSE_DIR" = true ]; then
-		opts+=("-r")
-	fi
-	if [ "$CLEAN_MARKDOWN" = true ]; then
-		opts+=("--clean")
-	fi
-	if [ "$PRECLEAN_COPY" = true ]; then
-		opts+=("--preclean-copy")
-	fi
-	if [ -n "${MARKER_WORKERS:-}" ]; then
-		opts+=("-w" "$MARKER_WORKERS")
-	fi
-	printf '%s\n' "${opts[@]}"
-}
-
-process_directory() {
-	local dir="$1"
-	local pdfs=()
-	shopt -s nullglob
-	if [ "$RECURSE_DIR" = true ]; then
-		mapfile -t pdfs < <(find "$dir" -type f \( -iname "*.pdf" \) | sort)
-	else
-		pdfs=("$dir"/*.pdf "$dir"/*.PDF)
-	fi
-	shopt -u nullglob
-	if [ "${#pdfs[@]}" -eq 0 ]; then
-		echo "Error: No PDF files found in directory: $dir" >&2
-		exit 1
-	fi
-	mapfile -t dir_opts < <(build_cli_options)
-	local failures=0
-	for pdf in "${pdfs[@]}"; do
-		echo "Processing PDF in directory: $(basename "$pdf")"
-		if ! "$SCRIPT_DIR/pdftomd.sh" "${dir_opts[@]}" "$pdf"; then
-			failures=$((failures + 1))
-			echo "Warning: Failed processing $pdf" >&2
-		fi
-	done
-	if [ "$failures" -gt 0 ]; then
-		echo "Error: $failures PDF(s) failed during directory processing." >&2
-		exit 1
-	fi
-	exit 0
 }
 
 if [ "$STRIP_IMAGE_LINKS" = true ]; then
@@ -680,9 +729,40 @@ report_marker_failure() {
 on_error() {
 	local exit_code=$?
 	local line_no="$1"
+	if [ "$INTERRUPTED" = true ] || [ "$exit_code" -ge 128 ]; then
+		cleanup_temp
+		exit "$exit_code"
+	fi
 	echo "Error: command failed at line $line_no (exit code $exit_code)." >&2
 	cleanup_temp
 	exit "$exit_code"
+}
+
+# Trap handler for user interrupts/termination signals.
+on_interrupt() {
+	local sig="$1"
+	if [ "$INTERRUPTED" = true ]; then
+		exit 130
+	fi
+	INTERRUPTED=true
+	local code=130
+	case "$sig" in
+	TERM)
+		code=143
+		;;
+	HUP)
+		code=129
+		;;
+	QUIT)
+		code=131
+		;;
+	INT)
+		code=130
+		;;
+	esac
+	echo "Interrupted; exiting (signal $sig)." >&2
+	cleanup_temp
+	exit "$code"
 }
 
 # Cleanup temp dirs and terminate marker subprocesses.
@@ -729,7 +809,11 @@ cleanup_temp() {
 }
 
 trap 'on_error $LINENO' ERR
-trap cleanup_temp INT TERM HUP QUIT EXIT
+trap 'on_interrupt INT' INT
+trap 'on_interrupt TERM' TERM
+trap 'on_interrupt HUP' HUP
+trap 'on_interrupt QUIT' QUIT
+trap cleanup_temp EXIT
 
 # Run a command quietly unless verbose is enabled.
 run_quiet() {
