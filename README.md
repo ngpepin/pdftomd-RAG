@@ -175,6 +175,8 @@ These steps keep the local `pdftomd.sh` customizations intact while pulling upst
 
 # Appendix: About Marker
 
+https://github.com/datalab-to/marker
+
 Marker converts documents to markdown, JSON, and HTML with a focus on speed and layout fidelity.
 
 - Supports PDFs plus common office and web formats (PPTX, DOCX, XLSX, HTML, EPUB, images)
