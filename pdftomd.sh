@@ -191,6 +191,9 @@ while [[ $# -gt 0 ]]; do
 			l)
 				USE_LLM=true
 				;;
+			s)
+				STRIP_OCR_LAYER_MODE="force"
+				;;
 			c)
 				FORCE_CPU=true
 				;;
