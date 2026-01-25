@@ -70,6 +70,11 @@ OCR_SCRIPT="$SCRIPT_DIR/ocr-pdf/ocr-pdf.sh"
 OCR_OPTIONS="-aq" # Options to pass to the OCR script
 USE_LLM=false
 LLM_SERVICE=""
+# OCR layer stripping controls (when -o/--ocr is NOT used)
+STRIP_OCR_LAYER_MODE="auto" # auto | force | off
+OCR_DETECT_INVISIBLE_RATIO="0.6" # Fraction of text runs rendered invisible to flag OCR
+OCR_DETECT_MIN_PAGE_RATIO="0.3"  # Fraction of pages flagged to trigger OCR stripping
+OCR_DETECT_MIN_PAGES="2"         # Minimum flagged pages to trigger OCR stripping
 
 # source the configuration file if it exists
 CONFIG_FILE="$SCRIPT_DIR/pdftomd.conf"
@@ -98,6 +103,8 @@ Options:
   -l, --llm         Enable Marker LLM helper (--use_llm)
   -c, --cpu         Force CPU processing (ignore GPU even if present)
   -r, --recurse     Recursively process PDFs when a directory is provided
+  -s, --strip-ocr-layer    Always strip OCR text layer when -o is not used
+  --no-strip-ocr-layer     Disable OCR text layer stripping when -o is not used
   --clean           Post-process markdown with the configured LLM to improve OCR/readability
   --preclean-copy   Save a pre-clean copy of the merged markdown before LLM cleanup
   -w, --workers N   Number of worker processes for marker
@@ -129,6 +136,14 @@ while [[ $# -gt 0 ]]; do
 		;;
 	-l | --llm)
 		USE_LLM=true
+		shift
+		;;
+	-s | --strip-ocr-layer)
+		STRIP_OCR_LAYER_MODE="force"
+		shift
+		;;
+	--no-strip-ocr-layer)
+		STRIP_OCR_LAYER_MODE="off"
 		shift
 		;;
 	-c | --cpu)
@@ -290,6 +305,47 @@ if [ "$USE_OCR" = true ]; then
 	source_pdf=$(realpath "$ocr_output_pdf")
 fi
 
+if [ "$USE_OCR" = true ] && [ "$STRIP_OCR_LAYER_MODE" = "force" ]; then
+	echo "Notice: --strip-ocr-layer ignored because --ocr was specified."
+	STRIP_OCR_LAYER_MODE="off"
+fi
+
+if [ "$USE_OCR" = false ]; then
+	case "$STRIP_OCR_LAYER_MODE" in
+	off)
+		;;
+	force)
+		echo "Stripping existing OCR text layer from PDF (forced)..."
+		strip_ocr_dir="$(mktemp -d)"
+		stripped_pdf="$strip_ocr_dir/$(basename "$source_pdf")"
+		if strip_ocr_layer_fast "$source_pdf" "$stripped_pdf"; then
+			source_pdf=$(realpath "$stripped_pdf")
+		else
+			echo "Warning: Failed to strip OCR layer; continuing with original PDF." >&2
+			rm -rf "$strip_ocr_dir"
+			strip_ocr_dir=""
+		fi
+		;;
+	auto)
+		echo "Detecting OCR text layer..."
+		if detect_ocr_layer_fast "$source_pdf"; then
+			echo "Detected OCR text layer; stripping..."
+			strip_ocr_dir="$(mktemp -d)"
+			stripped_pdf="$strip_ocr_dir/$(basename "$source_pdf")"
+			if strip_ocr_layer_fast "$source_pdf" "$stripped_pdf"; then
+				source_pdf=$(realpath "$stripped_pdf")
+			else
+				echo "Warning: Failed to strip OCR layer; continuing with original PDF." >&2
+				rm -rf "$strip_ocr_dir"
+				strip_ocr_dir=""
+			fi
+		else
+			echo "No OCR text layer detected; skipping strip."
+		fi
+		;;
+	esac
+fi
+
 if [ "$USE_LLM" = true ] && [ -z "$LLM_SERVICE" ]; then
 	if [ -n "$OPENAI_API_KEY" ] && [ "$OPENAI_API_KEY" != "..." ]; then
 		LLM_SERVICE="marker.services.openai.OpenAIService"
@@ -316,7 +372,8 @@ marker_pid=""
 marker_log=""
 marker_config_json=""
 marker_results_cleared=false
-marker_results_cleared=false
+strip_ocr_dir=""
+strip_ocr_dir=""
 
 #
 # FUNCTIONS
@@ -327,6 +384,166 @@ log() {
 	if [ "$VERBOSE" = true ]; then
 		echo "$@"
 	fi
+}
+
+# Ensure a Python package is installed in the Marker venv.
+ensure_marker_python_pkg() {
+	local pkg="$1"
+	local py="$MARKER_DIRECTORY/$MARKER_VENV/bin/python"
+	if [ ! -x "$py" ]; then
+		echo "Error: Marker venv python not found at $py" >&2
+		return 1
+	fi
+	if "$py" - <<PY >/dev/null 2>&1
+import importlib.util
+import sys
+sys.exit(0 if importlib.util.find_spec("$pkg") else 1)
+PY
+	then
+		return 0
+	fi
+	log "Installing Python package '$pkg' into Marker venv..."
+	"$py" -m pip install --disable-pip-version-check -q "$pkg"
+}
+
+# Detect whether a PDF likely contains an OCR text layer (returns 0 if detected).
+detect_ocr_layer_fast() {
+	local input_file="$1"
+	local py="$MARKER_DIRECTORY/$MARKER_VENV/bin/python"
+	if ! ensure_marker_python_pkg "PyPDF2"; then
+		echo "Warning: Unable to ensure PyPDF2; skipping OCR detection." >&2
+		return 1
+	fi
+	OCR_DETECT_INVISIBLE_RATIO="$OCR_DETECT_INVISIBLE_RATIO" \
+	OCR_DETECT_MIN_PAGE_RATIO="$OCR_DETECT_MIN_PAGE_RATIO" \
+	OCR_DETECT_MIN_PAGES="$OCR_DETECT_MIN_PAGES" \
+	"$py" - "$input_file" <<'PY'
+import os
+import sys
+from PyPDF2 import PdfReader
+from PyPDF2.generic import ContentStream
+
+inv_threshold = float(os.environ.get("OCR_DETECT_INVISIBLE_RATIO", "0.6"))
+min_page_ratio = float(os.environ.get("OCR_DETECT_MIN_PAGE_RATIO", "0.3"))
+min_pages = int(os.environ.get("OCR_DETECT_MIN_PAGES", "2"))
+
+reader = PdfReader(sys.argv[1])
+total_pages = len(reader.pages)
+flagged_pages = 0
+
+def page_has_image(page):
+    resources = page.get("/Resources") or {}
+    xobj = resources.get("/XObject")
+    if not xobj:
+        return False
+    try:
+        xobj = xobj.get_object()
+    except Exception:
+        pass
+    for obj in xobj.values():
+        try:
+            obj = obj.get_object()
+        except Exception:
+            pass
+        if obj.get("/Subtype") == "/Image":
+            return True
+    return False
+
+def count_text_ops(page, reader):
+    contents = page.get_contents()
+    if contents is None:
+        return 0, 0
+    cs = ContentStream(contents, reader)
+    in_text = False
+    text_render = 0
+    text_ops = 0
+    invisible_ops = 0
+    for operands, operator in cs.operations:
+        if operator == b"BT":
+            in_text = True
+            continue
+        if operator == b"ET":
+            in_text = False
+            continue
+        if operator == b"Tr":
+            try:
+                text_render = int(operands[0])
+            except Exception:
+                text_render = 0
+            continue
+        if not in_text:
+            continue
+        if operator in (b"Tj", b"'", b'"'):
+            text_ops += 1
+            if text_render == 3:
+                invisible_ops += 1
+        elif operator == b"TJ":
+            text_ops += 1
+            if text_render == 3:
+                invisible_ops += 1
+    return text_ops, invisible_ops
+
+if total_pages == 0:
+    sys.exit(1)
+
+for page in reader.pages:
+    if not page_has_image(page):
+        continue
+    text_ops, invisible_ops = count_text_ops(page, reader)
+    if text_ops == 0:
+        continue
+    if invisible_ops / text_ops >= inv_threshold:
+        flagged_pages += 1
+
+if flagged_pages >= min_pages or (flagged_pages / total_pages) >= min_page_ratio:
+    sys.exit(0)
+sys.exit(1)
+PY
+}
+
+# Strip text objects from the PDF content streams (removes OCR text layer).
+strip_ocr_layer_fast() {
+	local input_file="$1"
+	local output_file="$2"
+	local py="$MARKER_DIRECTORY/$MARKER_VENV/bin/python"
+	if ! ensure_marker_python_pkg "PyPDF2"; then
+		echo "Warning: Unable to ensure PyPDF2; skipping OCR layer stripping." >&2
+		return 1
+	fi
+	"$py" - "$input_file" "$output_file" <<'PY'
+import sys
+from PyPDF2 import PdfReader, PdfWriter
+from PyPDF2.generic import ContentStream, NameObject
+
+src = sys.argv[1]
+dst = sys.argv[2]
+
+reader = PdfReader(src)
+writer = PdfWriter()
+
+for page in reader.pages:
+    contents = page.get_contents()
+    if contents is not None:
+        cs = ContentStream(contents, reader)
+        new_ops = []
+        in_text = False
+        for operands, operator in cs.operations:
+            if operator == b"BT":
+                in_text = True
+                continue
+            if operator == b"ET":
+                in_text = False
+                continue
+            if in_text:
+                continue
+            new_ops.append((operands, operator))
+        cs.operations = new_ops
+        page[NameObject("/Contents")] = cs
+    writer.add_page(page)
+
+with open(dst, "wb") as handle:
+    writer.write(handle)
+PY
 }
 
 # Clear marker conversion results to avoid stale partial outputs.
@@ -357,6 +574,11 @@ build_cli_options() {
 	fi
 	if [ "$USE_LLM" = true ]; then
 		opts+=("-l")
+	fi
+	if [ "$STRIP_OCR_LAYER_MODE" = "force" ]; then
+		opts+=("-s")
+	elif [ "$STRIP_OCR_LAYER_MODE" = "off" ]; then
+		opts+=("--no-strip-ocr-layer")
 	fi
 	if [ "$FORCE_CPU" = true ]; then
 		opts+=("-c")
@@ -408,7 +630,7 @@ process_directory() {
 
 if [ "$STRIP_IMAGE_LINKS" = true ]; then
 	if [ "$CONVERT_BASE64" = true ]; then
-		log "Text-only mode enabled; ignoring --embed."
+		echo "Text-only mode enabled; ignoring --embed."
 	fi
 	CONVERT_BASE64=false
 fi
@@ -493,6 +715,9 @@ cleanup_temp() {
 	fi
 	if [ -n "$marker_config_json" ] && [ -f "$marker_config_json" ]; then
 		rm -f "$marker_config_json"
+	fi
+	if [ -n "$strip_ocr_dir" ] && [ -d "$strip_ocr_dir" ]; then
+		rm -rf "$strip_ocr_dir"
 	fi
 
 	if [ -n "$MARKER_RESULTS" ] && [ -d "$MARKER_RESULTS" ] && [ "$marker_results_cleared" = false ]; then
@@ -1223,15 +1448,16 @@ if [ "$SKIP_TO_ASSEMBLY" = false ]; then
 				marker_extra_args+=(--openai_base_url "$OPENAI_BASE_URL")
 			fi
 		fi
-		if [ "$USE_OCR" = true ]; then
-			marker_extra_args+=(--disable_ocr)
-		else
-			marker_config_json="$(mktemp)"
-			cat >"$marker_config_json" <<'JSON'
+	if [ "$USE_OCR" = true ]; then
+		marker_extra_args+=(--disable_ocr)
+	else
+		marker_config_json="$(mktemp)"
+		cat >"$marker_config_json" <<'JSON'
 {"force_ocr": true, "strip_existing_ocr": true}
 JSON
-			marker_extra_args+=(--config_json "$marker_config_json")
-		fi
+		log "Forcing Marker OCR (force_ocr=true, strip_existing_ocr=true)."
+		marker_extra_args+=(--config_json "$marker_config_json")
+	fi
 		cmd="marker '$chunk_dir' --output_dir '$MARKER_RESULTS' --workers $MARKER_WORKERS --timeout=240"
 		if [ "$USE_LLM" = true ]; then
 			cmd="$cmd --use_llm"
@@ -1622,14 +1848,33 @@ if [ "$STRIP_IMAGE_LINKS" = true ]; then
 	strip_image_links_from_md "$md_target"
 fi
 
+preclean_target="${md_target%.md}_preclean.md"
+preclean_temp=""
+if [ "$CLEAN_MARKDOWN" = true ]; then
+	preclean_temp="$(mktemp)"
+	cp -f "$md_target" "$preclean_temp"
+fi
+
 if [ "$PRECLEAN_COPY" = true ]; then
-	preclean_target="${md_target%.md}_preclean.md"
 	cp -f "$md_target" "$preclean_target"
 	echo "Saved pre-clean copy: $(basename "$preclean_target")"
 fi
 
 if [ "$CLEAN_MARKDOWN" = true ]; then
-	clean_markdown_with_llm "$md_target"
+	if ! clean_markdown_with_llm "$md_target"; then
+		echo "Warning: LLM cleanup failed; restoring pre-clean markdown." >&2
+		if [ -n "$preclean_temp" ] && [ -f "$preclean_temp" ]; then
+			cp -f "$preclean_temp" "$md_target"
+		fi
+		if [ "$PRECLEAN_COPY" = false ]; then
+			cp -f "$md_target" "$preclean_target"
+			echo "Saved pre-clean copy after cleanup failure: $(basename "$preclean_target")"
+		fi
+	fi
+fi
+
+if [ -n "$preclean_temp" ] && [ -f "$preclean_temp" ]; then
+	rm -f "$preclean_temp"
 fi
 
 if [ "${#chunk_archives[@]}" -gt 0 ]; then

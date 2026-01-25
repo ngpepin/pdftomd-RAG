@@ -3,13 +3,54 @@
 # Copy this file to pdftomd.conf and fill in your credentials.
 # The script only loads pdftomd.conf (without .pub).
 
-OPENAI_API_KEY="..."
-OPENAI_MODEL="gpt-4.1"
-OPENAI_BASE_URL="https://api.openai.com/v1"
+# ---------------------------
+# Core paths / tooling
+# ---------------------------
+VERBOSE=false 										# true/false: enable verbose console output
+DEBUG=false 										# true/false: enable extra debug logging
+SHOW_MARKER_OUTPUT=false 							# true/false: stream full marker stdout/stderr to console
+SKIP_TO_ASSEMBLY=false 								# true/false: skip marker conversion and only assemble existing chunks
+MARKER_DIRECTORY="/home/npepin/Projects/marker" 	# path to marker repo
+MARKER_VENV="venv" 									# name of venv directory inside MARKER_DIRECTORY
+# Override if your marker output path differs from the default construction.
+MARKER_RESULTS="/home/npepin/Projects/marker/venv/lib/python3.10/site-packages/conversion_results" # marker output directory
 
+# ---------------------------
+# Runtime defaults (CLI overrides these)
+# ---------------------------
+MARKER_WORKERS=1 									# integer >=1: number of marker worker processes
+CONVERT_BASE64=false 								# true/false: embed images as Base64 in markdown
+STRIP_IMAGE_LINKS=false 							# true/false: remove image links (overrides CONVERT_BASE64)
+FORCE_CPU=false 									# true/false: force CPU even if GPU is available
+RECURSE_DIR=false 									# true/false: recurse when a directory is provided
+CLEAN_MARKDOWN=false 								# true/false: run wrapper LLM cleanup step
+PRECLEAN_COPY=false 								# true/false: always save pre-clean markdown copy
+USE_OCR=false 										# true/false: run external OCR pre-pass (-o)
+USE_LLM=false 										# true/false: enable marker LLM helper (-l)
+LLM_SERVICE="" 										# marker service class path; empty lets wrapper auto-pick OpenAI service
+
+# ---------------------------
+# OCR pre-pass
+# ---------------------------
+OCR_SCRIPT="$SCRIPT_DIR/ocr-pdf/ocr-pdf.sh" # path to OCR pre-pass script
 # Options passed to ocr-pdf/ocr-pdf.sh (array form for clarity).
 # Example: OCR_OPTIONS=(-a -q)
-OCR_OPTIONS=(-a -q)
+OCR_OPTIONS=(-a -q) 								# array of flags for OCR_SCRIPT; see ocr-pdf/ocr-pdf.sh
+
+# ---------------------------
+# OCR layer stripping (when -o is NOT used)
+# ---------------------------
+STRIP_OCR_LAYER_MODE="auto" 						#  auto|force|off: detect/force/disable OCR-layer stripping
+OCR_DETECT_INVISIBLE_RATIO="0.6" 					# 0.0-1.0: 0 = any invisible text flags a page; 1 = only all-invisible text flags a page
+OCR_DETECT_MIN_PAGE_RATIO="0.3" 					# 0.0-1.0: 0 = any flagged page triggers stripping; 1 = all pages must be flagged
+OCR_DETECT_MIN_PAGES="2" 							# integer >=1: minimum flagged pages to trigger stripping
+
+# ---------------------------
+# LLM settings
+# ---------------------------
+OPENAI_API_KEY="..." 								# API key for OpenAI-compatible endpoint
+OPENAI_MODEL="gpt-4.1" 								# model name/id
+OPENAI_BASE_URL="https://api.openai.com/v1" 		# base URL, no trailing slash required
 
 # Approximate model context limit used to decide chunk sizes for --clean.
-MAX_TOKENS=30000
+MAX_TOKENS=30000 									# integer >0: max context used for --clean chunking

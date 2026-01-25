@@ -67,6 +67,8 @@ This produces `file.md` in the current directory. If you are not embedding image
 - `-l, --llm`: Enable Marker LLM helper (`--use_llm`) during conversion. Copy `pdftomd.conf.pub` to `pdftomd.conf` and configure credentials (e.g., `GOOGLE_API_KEY`), then optionally set `LLM_SERVICE`. For OpenAI-compatible endpoints set `LLM_SERVICE=marker.services.openai.OpenAIService` and supply `OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_BASE_URL`. When `-l` is enabled, the wrapper uses smaller PDF chunks (10 pages instead of 100) to reduce prompt sizes, and it will abort/retry once without `--use_llm` if it detects a "Rate limit error" in Marker output.
 - `-c, --cpu`: Force CPU processing (ignore GPU even if present).
 - `-r, --recurse`: Recursively process PDFs when a directory is provided.
+- `-s, --strip-ocr-layer`: Always strip OCR text layer when `-o` is not used (skips detection).
+- `--no-strip-ocr-layer`: Disable OCR text layer stripping when `-o` is not used.
 - `-w, --workers N`: Number of worker processes for marker (default is 1).
 - `-h, --help`: Show usage.
 - `--clean`: Post-process the final markdown with the configured LLM to improve readability and fix OCR errors. Creates a `.bak` of the original markdown and appends footnotes with original text. This is a wrapper-level cleanup pass and can be used together with `-l`. Note that it can result in longer conversion times.
@@ -83,6 +85,7 @@ This produces `file.md` in the current directory. If you are not embedding image
 ## Configuration
 
 Copy `pdftomd.conf.pub` to `pdftomd.conf`, edit the values for your environment, and keep `pdftomd.conf` out of version control.
+All tweakable defaults (paths, OCR stripping thresholds, LLM settings, etc.) can be overridden in `pdftomd.conf`; `pdftomd.conf.pub` contains the full list of supported parameters with defaults.
 
 `OCR_OPTIONS` can be set as a Bash array for clarity, for example:
 
@@ -101,6 +104,10 @@ Common flags:
 Marker already performs OCR on images during conversion, so `-o/--ocr` is optional. The bundled `ocr-pdf/ocr-pdf.sh` is a separate pre-processing pipeline that uses OCRmyPDF + Tesseract (optionally via the EasyOCR plugin for GPU) and adds steps like blank-page detection/removal, deskewing, autorotation, and size optimization before Marker runs. Use it if you want to experiment with alternate OCR engines/languages or extra pre-processing on scanned PDFs.  In general, Marker's built-in OCR does a better job, however. 
 
 When `-o/--ocr` is enabled, the wrapper passes `--disable_ocr` to Marker so it does not override the pre-processed OCR layer. When `-o/--ocr` is not used, the wrapper forces Marker OCR and strips existing OCR text layers to prefer Marker’s own OCR.
+
+When `-o/--ocr` is not used, the wrapper performs a fast PyPDF2 pass to **detect** OCR text layers and, if detected, physically strips text objects from the input PDF before running Marker. This helps prevent stale OCR layers from being reused. The pass uses the Marker venv and will install PyPDF2 there if missing.
+
+Use `-s/--strip-ocr-layer` to force stripping without detection, or `--no-strip-ocr-layer` to disable the stripping step. Detection thresholds are configurable in `pdftomd.sh` via `OCR_DETECT_INVISIBLE_RATIO`, `OCR_DETECT_MIN_PAGE_RATIO`, and `OCR_DETECT_MIN_PAGES`.
 
 ## LLM note
 
