@@ -4,16 +4,26 @@
 # The script only loads pdftomd.conf (without .pub).
 
 # ---------------------------
+# LLM settings
+# ---------------------------
+OPENAI_API_KEY="..." 								# API key for OpenAI-compatible endpoint
+OPENAI_MODEL="gpt-4.1" 								# model name/id
+OPENAI_BASE_URL="https://api.openai.com/v1" 		# base URL, no trailing slash required
+
+# Approximate model context limit used to decide chunk sizes for --clean.
+MAX_TOKENS=30000 									# integer >0: max context used for --clean chunking
+
+# ---------------------------
 # Core paths / tooling
 # ---------------------------
 VERBOSE=false 										# true/false: enable verbose console output
 DEBUG=false 										# true/false: enable extra debug logging
 SHOW_MARKER_OUTPUT=false 							# true/false: stream full marker stdout/stderr to console
 SKIP_TO_ASSEMBLY=false 								# true/false: skip marker conversion and only assemble existing chunks
-MARKER_DIRECTORY="/home/npepin/Projects/marker" 	# path to marker repo
+MARKER_DIRECTORY=".../marker" 	# path to marker repo
 MARKER_VENV="venv" 									# name of venv directory inside MARKER_DIRECTORY
 # Override if your marker output path differs from the default construction.
-MARKER_RESULTS="/home/npepin/Projects/marker/venv/lib/python3.10/site-packages/conversion_results" # marker output directory
+MARKER_RESULTS="...marker/venv/lib/python3.10/site-packages/conversion_results" # marker output directory
 
 # ---------------------------
 # Runtime defaults (CLI overrides these)
@@ -45,12 +55,4 @@ OCR_DETECT_INVISIBLE_RATIO="0.6" 					# 0.0-1.0: 0 = any invisible text flags a 
 OCR_DETECT_MIN_PAGE_RATIO="0.3" 					# 0.0-1.0: 0 = any flagged page triggers stripping; 1 = all pages must be flagged
 OCR_DETECT_MIN_PAGES="2" 							# integer >=1: minimum flagged pages to trigger stripping
 
-# ---------------------------
-# LLM settings
-# ---------------------------
-OPENAI_API_KEY="..." 								# API key for OpenAI-compatible endpoint
-OPENAI_MODEL="gpt-4.1" 								# model name/id
-OPENAI_BASE_URL="https://api.openai.com/v1" 		# base URL, no trailing slash required
 
-# Approximate model context limit used to decide chunk sizes for --clean.
-MAX_TOKENS=30000 									# integer >0: max context used for --clean chunking
