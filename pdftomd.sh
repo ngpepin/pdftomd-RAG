@@ -1232,6 +1232,12 @@ system_prompt = (
     "without inventing new content. Preserve markdown structure (headings, lists, code, "
     "tables, links). When you replace or remove text, insert a placeholder like [[FN1]] "
     "at the correction point and record the original text in notes. "
+    "Fix sentences broken by hard line breaks by joining lines where appropriate, "
+    "while preserving true paragraph breaks and markdown structure (do not join across "
+    "headings, list items, or code blocks). "
+    "Restore words split by decorative large-capital artifacts (e.g., dropped-cap or "
+    "small-caps markup like $F^{\\scriptsize{\\mbox{IRST}}}$ or inline small-caps) by "
+    "removing the artifact and producing the normal word (FIRST). "
     "Do not alter any __DATA_IMAGE_TOKEN_n__ placeholders."
 )
 
@@ -1240,6 +1246,9 @@ def build_user_prompt(text: str, index: int, total: int) -> str:
         f"Chunk {index}/{total}. Edit the markdown below.\\n\\n"
         "Rules:\\n"
         "- Preserve meaning; fix OCR errors and improve readability.\\n"
+        "- Repair sentences split across one or more linefeeds by joining lines when appropriate.\\n"
+        "- Do NOT join across headings, list items, or code blocks.\\n"
+        "- Remove decorative large-cap artifacts that split the first word (e.g., $F^{\\\\scriptsize{\\\\mbox{IRST}}}$ or inline small-caps) and restore the plain word (FIRST).\\n"
         "- Keep markdown structure.\\n"
         "- Do not alter any __DATA_IMAGE_TOKEN_n__ placeholders.\\n"
         "- For each correction/removal, insert a placeholder [[FNn]] where the change occurs.\\n"
