@@ -13,7 +13,8 @@ set -eE -o pipefail
 #####
 # PDF to Markdown wrapper for Marker (https://github.com/VikParuchuri/marker)
 #
-# - Splits the input PDF into 100-page chunks, runs Marker once on the chunk folder,
+# - Splits the input PDF into 100-page chunks (25 pages when --clean is enabled, 10 pages when -l/--llm is enabled),
+#   runs Marker once on the chunk folder,
 #   and merges the resulting markdown into a single output file.
 # - Supports optional OCR pre-pass via the bundled ocr-pdf/ocr-pdf.sh and optional LLM helper mode via Marker.
 # - Moves the final markdown to the directory where the script was invoked.
@@ -1490,6 +1491,8 @@ fi
 chunk_pages=100
 if [ "$USE_LLM" = true ]; then
 	chunk_pages=10
+elif [ "$CLEAN_MARKDOWN" = true ]; then
+	chunk_pages=25
 fi
 
 log ""
