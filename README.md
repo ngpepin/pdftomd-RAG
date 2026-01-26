@@ -94,17 +94,9 @@ All tweakable defaults (paths, OCR stripping thresholds, LLM settings, etc.) can
 Run `./install.sh` to clone/update the Marker repo into `./marker`, create the Marker venv, install dependencies, and populate `pdftomd.conf` if it does not exist (by copying `pdftomd.conf.pub`). It also updates `MARKER_DIRECTORY`, `MARKER_VENV`, `MARKER_RESULTS`, and `OCR_SCRIPT` in `pdftomd.conf` to match the local install.
 Use `./install.sh --force` to overwrite `pdftomd.conf` by re-copying `pdftomd.conf.pub` before applying the path updates.
 
-`OCR_OPTIONS` can be set as a Bash array for clarity, for example:
+### Update helper
 
-```bash
-OCR_OPTIONS=(-a -q)
-```
-
-Common flags:
-- `-a`: autorotate pages
-- `-q`: quiet output
-
-`MAX_TOKENS` controls the chunking size for `--clean`. Set it to the approximate context window of your LLM.
+Run `./update-marker.sh` to pull the latest Marker changes without modifying your local configuration or venv. It will refuse to update if the marker repo has local changes, and performs lightweight checks (entrypoints + wrapper syntax).
 
 ## OCR note
 
@@ -138,41 +130,6 @@ If you want to strip the `--clean` footnotes and the `OCR Corrections Notes` sec
 - Marker installed in the configured `MARKER_DIRECTORY` with an active venv
 - Bundled `ocr-pdf/ocr-pdf.sh` (required for `-o/--ocr`)
 - NVIDIA driver installed if you want GPU (torch will be auto-installed in the venv)
-
-## Updating Marker without breaking `pdftomd.sh`
-
-These steps keep the local `pdftomd.sh` customizations intact while pulling upstream Marker changes (assuming Marker has not changed significantly).
-
-1. Fetch upstream changes:
-   ```shell
-   git fetch origin
-   ```
-2. Review local changes:
-   ```shell
-   git status -sb
-   git diff
-   ```
-3. Merge upstream:
-   ```shell
-   git merge origin/main
-   ```
-4. Re-apply local edits if needed (focus on):
-   - `pdftomd.sh` custom logic (GPU auto-install, single marker run, output moving).
-   - `AGENTS.md` and README additions.
-5. Verify that marker entrypoints are unchanged:
-   ```shell
-   rg -n "\\[tool.poetry.scripts\\]" pyproject.toml
-   ```
-   Ensure `marker` and `marker_single` still point to the same scripts.
-6. Validate the wrapper script:
-   ```shell
-   bash -n pdftomd.sh
-   ./pdftomd.sh -h
-   ```
-7. (Optional) Smoke test on a small PDF:
-   ```shell
-   ./pdftomd.sh -e path/to/small.pdf
-   ```
 
 ## Troubleshooting
 
