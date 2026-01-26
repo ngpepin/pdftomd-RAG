@@ -2,7 +2,7 @@
 
 `pdftomd.sh`is a RAG workflow-friendly enhancement of Marker that converts a PDF into a single markdown file. It handles GPU and PyTorch configuration, document splitting and chunking, image BASE64 embedding, LLM post-processing and cleanup, and consolidation of output
 
-https://github.com/datalab-to/marker
+For more on Marker, see https://github.com/datalab-to/marker
 
 ## Why use the wrapper
 
