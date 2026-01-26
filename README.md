@@ -154,8 +154,6 @@ Marker converts documents to markdown, JSON, and HTML with a focus on speed and 
 
 Marker is designed for high throughput and strong accuracy. Reported benchmarks show it outperforming many hosted services and other open source tools.
 
-Batch runs are substantially faster than single-page serial processing, with a reported peak throughput around 122 pages per second on an H100 (about 0.18 seconds per page across 22 processes).
-
 ## Hybrid Mode
 
 For the highest accuracy, pass the `--use_llm` flag to combine Marker with an LLM. This improves table structure, multi-page table merging, inline math, and form value extraction.
