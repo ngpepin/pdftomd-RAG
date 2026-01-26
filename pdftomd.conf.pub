@@ -37,9 +37,10 @@ USE_OCR=false 										# true/false: run external OCR pre-pass (-o)
 USE_LLM=false 										# true/false: enable marker LLM helper (-l)
 LLM_SERVICE="" 										# marker service class path; empty lets wrapper auto-pick OpenAI service
 # Chunking behavior (pages per split PDF).
+# Settings tested on NVIDIA RTX 4080 Mobile with 12GB VRAM.
 CHUNK_PAGES_DEFAULT=100 							# default pages per chunk
-CHUNK_PAGES_CLEAN=25 								# pages per chunk when --clean is enabled (unless -l overrides)
-CHUNK_PAGES_LLM=25 									# pages per chunk when -l/--llm is enabled
+CHUNK_PAGES_CLEAN=20 								# pages per chunk when --clean is enabled (unless -l overrides)
+CHUNK_PAGES_LLM=20 									# pages per chunk when -l/--llm is enabled
 
 # ---------------------------
 # OCR pre-pass
