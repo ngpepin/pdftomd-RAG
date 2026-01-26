@@ -79,6 +79,10 @@ STRIP_OCR_LAYER_MODE="auto" # auto | force | off
 OCR_DETECT_INVISIBLE_RATIO="0.6" # Fraction of text runs rendered invisible to flag OCR
 OCR_DETECT_MIN_PAGE_RATIO="0.3"  # Fraction of pages flagged to trigger OCR stripping
 OCR_DETECT_MIN_PAGES="2"         # Minimum flagged pages to trigger OCR stripping
+# Chunking defaults (overridable in pdftomd.conf)
+CHUNK_PAGES_DEFAULT=100
+CHUNK_PAGES_CLEAN=25
+CHUNK_PAGES_LLM=10
 
 # source the configuration file if it exists
 CONFIG_FILE="$SCRIPT_DIR/pdftomd.conf"
@@ -90,6 +94,11 @@ else
 	OPENAI_MODEL="gpt-4.1"
 	OPENAI_BASE_URL="https://api.openai.com/v1"
 fi
+
+# Normalize chunking values from config (if provided).
+CHUNK_PAGES_DEFAULT="${CHUNK_PAGES_DEFAULT:-100}"
+CHUNK_PAGES_CLEAN="${CHUNK_PAGES_CLEAN:-25}"
+CHUNK_PAGES_LLM="${CHUNK_PAGES_LLM:-10}"
 
 # Log only when verbose mode is enabled.
 log() {
@@ -1488,11 +1497,15 @@ fi
 # SPLIT PDF INTO CHUNKS
 # ----------------------------------------------
 
-chunk_pages=100
+chunk_pages="$CHUNK_PAGES_DEFAULT"
 if [ "$USE_LLM" = true ]; then
-	chunk_pages=10
+	chunk_pages="$CHUNK_PAGES_LLM"
 elif [ "$CLEAN_MARKDOWN" = true ]; then
-	chunk_pages=25
+	chunk_pages="$CHUNK_PAGES_CLEAN"
+fi
+if ! [[ "$chunk_pages" =~ ^[0-9]+$ ]] || [ "$chunk_pages" -lt 1 ]; then
+	echo "Warning: CHUNK_PAGES_* must be a positive integer; falling back to 100." >&2
+	chunk_pages=100
 fi
 
 log ""

@@ -11,7 +11,7 @@ OPENAI_MODEL="gpt-4.1" 								# model name/id
 OPENAI_BASE_URL="https://api.openai.com/v1" 		# base URL, no trailing slash required
 
 # Approximate model context limit used to decide chunk sizes for --clean.
-MAX_TOKENS=30000 									# integer >0: max context used for --clean chunking
+MAX_TOKENS=32768 									# integer >0: max context used for --clean chunking
 
 # ---------------------------
 # Core paths / tooling
@@ -38,6 +38,10 @@ PRECLEAN_COPY=false 								# true/false: always save pre-clean markdown copy
 USE_OCR=false 										# true/false: run external OCR pre-pass (-o)
 USE_LLM=false 										# true/false: enable marker LLM helper (-l)
 LLM_SERVICE="" 										# marker service class path; empty lets wrapper auto-pick OpenAI service
+# Chunking behavior (pages per split PDF).
+CHUNK_PAGES_DEFAULT=100 							# default pages per chunk
+CHUNK_PAGES_CLEAN=25 								# pages per chunk when --clean is enabled (unless -l overrides)
+CHUNK_PAGES_LLM=25 									# pages per chunk when -l/--llm is enabled
 
 # ---------------------------
 # OCR pre-pass
@@ -54,5 +58,4 @@ STRIP_OCR_LAYER_MODE="auto" 						#  auto|force|off: detect/force/disable OCR-la
 OCR_DETECT_INVISIBLE_RATIO="0.6" 					# 0.0-1.0: 0 = any invisible text flags a page; 1 = only all-invisible text flags a page
 OCR_DETECT_MIN_PAGE_RATIO="0.3" 					# 0.0-1.0: 0 = any flagged page triggers stripping; 1 = all pages must be flagged
 OCR_DETECT_MIN_PAGES="2" 							# integer >=1: minimum flagged pages to trigger stripping
-
 
