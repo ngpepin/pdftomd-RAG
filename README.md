@@ -10,7 +10,7 @@ https://github.com/datalab-to/marker
 - Consolidates all chunk markdown into a single `.md` file.
 - Optionally embeds images as Base64 (no external asset folders needed).
 - Optional text-only output that strips image links from the final markdown.
-- Optional OCR pass via bundled `ocr-pdf/ocr-pdf.sh` before conversion.
+- Optional OCR pass via bundled `ocr-pdf/ocr-pdf.sh` before conversion (advanced PDF OCR pipeline script, GPU-aware via EasyOCR plugin)
 - Optional LLM helper via a built-in Marker `--use_llm`.
 - Automatically uses GPU when available and installs CUDA-enabled torch when needed.
 - Cleans up intermediate files and attempts to stop spawned processes on exit.
