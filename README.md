@@ -89,6 +89,11 @@ This produces `file.md` in the current directory. If you are not embedding image
 Copy `pdftomd.conf.pub` to `pdftomd.conf`, edit the values for your environment, and keep `pdftomd.conf` out of version control.
 All tweakable defaults (paths, OCR stripping thresholds, LLM settings, etc.) can be overridden in `pdftomd.conf`; `pdftomd.conf.pub` contains the full list of supported parameters with defaults.
 
+### Install helper
+
+Run `./install.sh` to clone/update the Marker repo into `./marker`, create the Marker venv, install dependencies, and populate `pdftomd.conf` if it does not exist (by copying `pdftomd.conf.pub`). It also updates `MARKER_DIRECTORY`, `MARKER_VENV`, `MARKER_RESULTS`, and `OCR_SCRIPT` in `pdftomd.conf` to match the local install.
+Use `./install.sh --force` to overwrite `pdftomd.conf` by re-copying `pdftomd.conf.pub` before applying the path updates.
+
 `OCR_OPTIONS` can be set as a Bash array for clarity, for example:
 
 ```bash

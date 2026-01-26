@@ -5,6 +5,7 @@ This file captures local project quirks and workflow notes for humans or coding 
 ## Project overview
 - Core tool: Marker (Python) for converting documents to markdown/json/html.
 - Convenience wrapper: `pdftomd.sh` in repo root for PDF-to-markdown with chunking, GPU handling, and output consolidation.
+- Install helper: `install.sh` clones/updates Marker into `./marker`, sets up the venv, and ensures `pdftomd.conf` exists (copied from `pdftomd.conf.pub` if missing) with updated `MARKER_*` and `OCR_SCRIPT` paths. Use `--force` to overwrite `pdftomd.conf` from `pdftomd.conf.pub` before updating paths.
 
 ## pdftomd.sh behavior
 - Splits the input PDF into 100-page chunks with `qpdf` (10 pages when `-l/--llm` is enabled), processes all chunks in one `marker` run to avoid repeated model loads, then merges markdown.
