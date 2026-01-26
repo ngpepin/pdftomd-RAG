@@ -62,19 +62,19 @@ This produces `file.md` in the current directory. If you are not embedding image
 
 ## Options
 
+- `-c, --clean`: Post-process the final markdown with the configured LLM to improve readability and fix OCR errors. Creates a `.bak` of the original markdown and appends footnotes with original text. This is a wrapper-level cleanup pass and can be used together with `-l`. Note that it can result in longer conversion times.
+- `--cpu`: Force CPU processing (ignore GPU even if present).
 - `-e, --embed`: Embed images as Base64 in the output markdown.
-- `-t, --text`: Remove image links from the final markdown (ignores `--embed`).
-- `-v, --verbose`: Show verbose output.
-- `-o, --ocr`: Run OCR via bundled `ocr-pdf/ocr-pdf.sh` before conversion (produces `<filename>_OCR.md`).
+- `-h, --help`: Show usage.
 - `-l, --llm`: Enable Marker LLM helper (`--use_llm`) during conversion. Copy `pdftomd.conf.pub` to `pdftomd.conf` and configure credentials (e.g., `GOOGLE_API_KEY`), then optionally set `LLM_SERVICE`. For OpenAI-compatible endpoints set `LLM_SERVICE=marker.services.openai.OpenAIService` and supply `OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_BASE_URL`. When `-l` is enabled, the wrapper uses smaller PDF chunks (10 pages instead of 100) to reduce prompt sizes, and it will abort/retry once without `--use_llm` if it detects a "Rate limit error" in Marker output.
-- `-c, --cpu`: Force CPU processing (ignore GPU even if present).
+- `-n, --no-strip-ocr-layer`: Disable OCR text layer stripping when `-o` is not used.
+- `-o, --ocr`: Run OCR via bundled `ocr-pdf/ocr-pdf.sh` before conversion (produces `<filename>_OCR.md`).
+- `--preclean-copy`: Save a copy of the merged markdown (before `--clean`) as `<name>_preclean.md`.
 - `-r, --recurse`: Recursively process PDFs when a directory is provided.
 - `-s, --strip-ocr-layer`: Always strip OCR text layer when `-o` is not used (skips detection).
-- `--no-strip-ocr-layer`: Disable OCR text layer stripping when `-o` is not used.
+- `-t, --text`: Remove image links from the final markdown (ignores `--embed`).
+- `-v, --verbose`: Show verbose output.
 - `-w, --workers N`: Number of worker processes for marker (default is 1).
-- `-h, --help`: Show usage.
-- `--clean`: Post-process the final markdown with the configured LLM to improve readability and fix OCR errors. Creates a `.bak` of the original markdown and appends footnotes with original text. This is a wrapper-level cleanup pass and can be used together with `-l`. Note that it can result in longer conversion times.
-- `--preclean-copy`: Save a copy of the merged markdown (before `--clean`) as `<name>_preclean.md`.
 
 ## Output behaviour
 
@@ -109,7 +109,7 @@ When `-o/--ocr` is enabled, the wrapper passes `--disable_ocr` to Marker so it d
 
 When `-o/--ocr` is not used, the wrapper performs a fast PyPDF2 pass to **detect** OCR text layers and, if detected, physically strips text objects from the input PDF before running Marker. This helps prevent stale OCR layers from being reused. The pass uses the Marker venv and will install PyPDF2 there if missing.
 
-Use `-s/--strip-ocr-layer` to force stripping without detection, or `--no-strip-ocr-layer` to disable the stripping step. Detection thresholds are configurable in `pdftomd.sh` via `OCR_DETECT_INVISIBLE_RATIO`, `OCR_DETECT_MIN_PAGE_RATIO`, and `OCR_DETECT_MIN_PAGES`.
+Use `-s/--strip-ocr-layer` to force stripping without detection, or `-n/--no-strip-ocr-layer` to disable the stripping step. Detection thresholds are configurable in `pdftomd.sh` via `OCR_DETECT_INVISIBLE_RATIO`, `OCR_DETECT_MIN_PAGE_RATIO`, and `OCR_DETECT_MIN_PAGES`.
 
 ## LLM note
 

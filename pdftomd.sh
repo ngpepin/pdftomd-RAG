@@ -28,9 +28,11 @@ set -eE -o pipefail
 #  -v, --verbose     Show verbose output
 #  -o, --ocr         Run OCR via bundled ocr-pdf/ocr-pdf.sh before conversion
 #  -l, --llm         Enable Marker LLM helper (--use_llm)
-#  -c, --cpu         Force CPU processing (ignore GPU even if present)
+#  --cpu            Force CPU processing (ignore GPU even if present)
 #  -r, --recurse     Recursively process PDFs when a directory is provided
-#  --clean           Post-process markdown with the configured LLM to improve OCR/readability
+#  -s, --strip-ocr-layer    Always strip OCR text layer when -o is not used (default is auto)
+#  -n, --no-strip-ocr-layer Disable OCR text layer stripping when -o is not used
+#  -c, --clean       Post-process markdown with the configured LLM to improve OCR/readability
 #  --preclean-copy   Save a pre-clean copy of the merged markdown before LLM cleanup
 #  -w, --workers N   Number of worker processes for marker
 #  -h, --help        Show this help message
@@ -115,16 +117,16 @@ build_cli_options() {
 	if [ "$STRIP_OCR_LAYER_MODE" = "force" ]; then
 		opts+=("-s")
 	elif [ "$STRIP_OCR_LAYER_MODE" = "off" ]; then
-		opts+=("--no-strip-ocr-layer")
+		opts+=("-n")
 	fi
 	if [ "$FORCE_CPU" = true ]; then
-		opts+=("-c")
+		opts+=("--cpu")
 	fi
 	if [ "$RECURSE_DIR" = true ]; then
 		opts+=("-r")
 	fi
 	if [ "$CLEAN_MARKDOWN" = true ]; then
-		opts+=("--clean")
+		opts+=("-c")
 	fi
 	if [ "$PRECLEAN_COPY" = true ]; then
 		opts+=("--preclean-copy")
@@ -170,6 +172,15 @@ process_directory() {
 		exit 1
 	fi
 	exit 0
+}
+
+# Print CLI flag settings (always on).
+print_flag_summary() {
+	local ocr_opts="n/a"
+	if [ "$USE_OCR" = true ]; then
+		ocr_opts="${OCR_OPTIONS:-}"
+	fi
+	echo "Flags: embed=$CONVERT_BASE64 text-only=$STRIP_IMAGE_LINKS verbose=$VERBOSE ocr=$USE_OCR ocr-opts=$ocr_opts llm=$USE_LLM clean=$CLEAN_MARKDOWN preclean-copy=$PRECLEAN_COPY strip-ocr-layer=$STRIP_OCR_LAYER_MODE cpu=$FORCE_CPU recurse=$RECURSE_DIR workers=$MARKER_WORKERS"
 }
 
 # Ensure a Python package is installed in the Marker venv.
@@ -385,23 +396,23 @@ print_usage() {
 Usage: pdftomd.sh [options] <pdf_file|directory>
 
 Options:
+  -c, --clean       Post-process markdown with the configured LLM to improve OCR/readability
+  --cpu            Force CPU processing (ignore GPU even if present)
   -e, --embed       Embed images as Base64 in the output markdown
-  -t, --text        Remove image links from the final markdown (ignores --embed)
-  -v, --verbose     Show verbose output
+  -h, --help        Show this help message
+  -l, --llm         Enable Marker LLM helper (--use_llm)
+  -n, --no-strip-ocr-layer Disable OCR text layer stripping when -o is not used
   -o, --ocr         Run OCR via bundled ocr-pdf/ocr-pdf.sh before conversion
                     (Note that Marker will perform OCR on images if needed)
-  -l, --llm         Enable Marker LLM helper (--use_llm)
-  -c, --cpu         Force CPU processing (ignore GPU even if present)
-  -r, --recurse     Recursively process PDFs when a directory is provided
-  -s, --strip-ocr-layer    Always strip OCR text layer when -o is not used
-  --no-strip-ocr-layer     Disable OCR text layer stripping when -o is not used
-  --clean           Post-process markdown with the configured LLM to improve OCR/readability
   --preclean-copy   Save a pre-clean copy of the merged markdown before LLM cleanup
+  -r, --recurse     Recursively process PDFs when a directory is provided
+  -s, --strip-ocr-layer    Always strip OCR text layer when -o is not used (default is auto)
+  -t, --text        Remove image links from the final markdown (ignores --embed)
+  -v, --verbose     Show verbose output
   -w, --workers N   Number of worker processes for marker
-  -h, --help        Show this help message
 
 Output is moved to the directory where the script is run.
-CUDA-enabled torch is installed automatically when a GPU is detected, unless -c is set.
+CUDA-enabled torch is installed automatically when a GPU is detected, unless --cpu is set.
 EOF
 }
 
@@ -432,11 +443,15 @@ while [[ $# -gt 0 ]]; do
 		STRIP_OCR_LAYER_MODE="force"
 		shift
 		;;
-	--no-strip-ocr-layer)
+	-n | --no-strip-ocr-layer)
 		STRIP_OCR_LAYER_MODE="off"
 		shift
 		;;
-	-c | --cpu)
+	-c | --clean)
+		CLEAN_MARKDOWN=true
+		shift
+		;;
+	--cpu)
 		FORCE_CPU=true
 		shift
 		;;
@@ -484,8 +499,11 @@ while [[ $# -gt 0 ]]; do
 			s)
 				STRIP_OCR_LAYER_MODE="force"
 				;;
+			n)
+				STRIP_OCR_LAYER_MODE="off"
+				;;
 			c)
-				FORCE_CPU=true
+				CLEAN_MARKDOWN=true
 				;;
 			r)
 				RECURSE_DIR=true
@@ -541,6 +559,8 @@ if ! [[ "$MARKER_WORKERS" =~ ^[0-9]+$ ]] || [ "$MARKER_WORKERS" -lt 1 ]; then
 	echo "Error: --workers must be a positive integer."
 	exit 1
 fi
+
+print_flag_summary
 
 start_directory=$(pwd)
 source_pdf=$(realpath "$source_pdf")
@@ -1539,10 +1559,15 @@ if [ "$SKIP_TO_ASSEMBLY" = false ]; then
 		marker_extra_args+=(--disable_ocr)
 	else
 		marker_config_json="$(mktemp)"
-		cat >"$marker_config_json" <<'JSON'
-{"force_ocr": true, "strip_existing_ocr": true}
+		marker_force_ocr=true
+		marker_strip_existing_ocr=true
+		if [ "$STRIP_OCR_LAYER_MODE" = "off" ]; then
+			marker_strip_existing_ocr=false
+		fi
+		cat >"$marker_config_json" <<JSON
+{"force_ocr": $marker_force_ocr, "strip_existing_ocr": $marker_strip_existing_ocr}
 JSON
-		log "Forcing Marker OCR (force_ocr=true, strip_existing_ocr=true)."
+		log "Marker OCR config: force_ocr=$marker_force_ocr, strip_existing_ocr=$marker_strip_existing_ocr."
 		marker_extra_args+=(--config_json "$marker_config_json")
 	fi
 		cmd="marker '$chunk_dir' --output_dir '$MARKER_RESULTS' --workers $MARKER_WORKERS --timeout=240"
