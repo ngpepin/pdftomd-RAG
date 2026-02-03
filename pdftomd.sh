@@ -1007,9 +1007,14 @@ configure_torch_device() {
 		fi
 		log "CUDA detected; using TORCH_DEVICE=${TORCH_DEVICE:-cuda}."
 		# Helps avoid CUDA OOM due to allocator fragmentation on longer runs.
-		if [ "${TORCH_DEVICE:-}" = "cuda" ] && [ -z "${PYTORCH_CUDA_ALLOC_CONF:-}" ]; then
-			export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
-			log "Set PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to reduce CUDA memory fragmentation."
+		if [ "${TORCH_DEVICE:-}" = "cuda" ]; then
+			if [ -z "${PYTORCH_ALLOC_CONF:-}" ] && [ -n "${PYTORCH_CUDA_ALLOC_CONF:-}" ]; then
+				export PYTORCH_ALLOC_CONF="$PYTORCH_CUDA_ALLOC_CONF"
+				log "Set PYTORCH_ALLOC_CONF=$PYTORCH_ALLOC_CONF (from deprecated PYTORCH_CUDA_ALLOC_CONF)."
+			elif [ -z "${PYTORCH_ALLOC_CONF:-}" ]; then
+				export PYTORCH_ALLOC_CONF="expandable_segments:True"
+				log "Set PYTORCH_ALLOC_CONF=expandable_segments:True to reduce CUDA memory fragmentation."
+			fi
 		fi
 	else
 		if [ "${TORCH_DEVICE:-}" = "cuda" ]; then
