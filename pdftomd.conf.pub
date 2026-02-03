@@ -30,6 +30,7 @@ MARKER_WORKERS=1 									# integer >=1: number of marker worker processes
 CONVERT_BASE64=false 								# true/false: embed images as Base64 in markdown
 STRIP_IMAGE_LINKS=false 							# true/false: remove image links (overrides CONVERT_BASE64)
 FORCE_CPU=false 									# true/false: force CPU even if GPU is available
+PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True" 	# string (optional): PyTorch CUDA allocator config; helps avoid fragmentation OOMs (common: "expandable_segments:True")
 RECURSE_DIR=false 									# true/false: recurse when a directory is provided
 CLEAN_MARKDOWN=false 								# true/false: run wrapper LLM cleanup step
 PRECLEAN_COPY=false 								# true/false: always save pre-clean markdown copy
