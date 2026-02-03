@@ -1835,7 +1835,7 @@ fi
 cd "$directory" || exit
 temp_dir=$(mktemp -d)
 temp_merge_dir="$temp_dir"
-touch "$consolidated_md_file"
+> "$consolidated_md_file"
 for i in "${!file_array_md[@]}"; do
 
 	file="${file_array_md[$i]}"
