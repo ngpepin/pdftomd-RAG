@@ -1105,7 +1105,7 @@ for line in content.splitlines():
     lines.append(line)
 
 with open(path, "w", encoding="utf-8") as handle:
-    handle.write("\\n".join(lines))
+    handle.write("\n".join(lines))
 PY
 
 	log "Stripped image links from markdown: $input_file"
