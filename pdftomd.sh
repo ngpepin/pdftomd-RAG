@@ -1531,7 +1531,7 @@ start_name="${output_split_files##*/}"
 start_name="${start_name%.*}"
 
 # Create an array of the chunked PDF filenames
-mapfile -t file_array < <(ls "$directory" | grep "^$start_name" | grep "$ext$" | sort -t'-' -k2,2n)
+mapfile -t file_array < <(find "$directory" -maxdepth 1 -type f -name "$start_name*-*${ext}" -print0 | xargs -0 -I {} basename "{}" | sort -t'-' -k2,2n)
 
 # Display the list of chunked PDF filenames
 if [ "$DEBUG" = true ]; then
@@ -1823,9 +1823,7 @@ start_name="${start_name%.*}"
 
 shopt -s nullglob
 mapfile -t file_array_md < <(
-	for f in "$directory/${start_name}-"*.md; do
-		basename "$f"
-	done | sort -t'-' -k2,2n
+	find "$directory" -maxdepth 1 -type f -name "${start_name}-*.md" -print0 | xargs -0 -I {} basename "{}" | sort -t'-' -k2,2n
 )
 shopt -u nullglob
 if [ "${#file_array_md[@]}" -eq 0 ]; then
